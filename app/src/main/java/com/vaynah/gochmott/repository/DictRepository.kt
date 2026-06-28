@@ -90,10 +90,12 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         results
     }
 
-    // Path C: Fuzzy / substring search (FTS5 trigram or LIKE fallback)
+    // Path C: Fuzzy / substring search — multi-pattern LIKE, sorted by edit distance
     suspend fun searchFuzzy(input: String): List<LemmaHit> = withContext(Dispatchers.IO) {
         val key = ChechenNormalizer.normalize(input)
-        if (key.length < 3) return@withContext emptyList()
+        if (key.length < 2) return@withContext emptyList()
+
+        val hits = mutableMapOf<Long, LemmaHit>()
 
         if (dbHelper.hasFts5) {
             val sqlFts = """
@@ -105,16 +107,22 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
                 JOIN lemmas l      ON l.id = wf.lemma_id
                 LEFT JOIN pos p    ON p.id = l.pos_id
                 WHERE forms_trgm MATCH ?
-                LIMIT 50
+                LIMIT 100
             """.trimIndent()
             try {
-                return@withContext dbHelper.database.rawQuery(sqlFts, arrayOf(key)).use { cursor ->
-                    buildHits(cursor)
+                dbHelper.database.rawQuery(sqlFts, arrayOf(key)).use { cursor ->
+                    buildHits(cursor).forEach { hits[it.id] = it }
                 }
-            } catch (_: Exception) { /* fall through to LIKE */ }
+            } catch (_: Exception) { }
         }
 
-        // LIKE fallback
+        // Search with full key + without first char + without last char
+        val patterns = buildList {
+            add(key)
+            if (key.length > 2) add(key.drop(1))
+            if (key.length > 2) add(key.dropLast(1))
+        }.distinct()
+
         val sqlLike = """
             SELECT DISTINCT l.id, l.headword, l.homograph_n, p.code AS pos,
                    l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note,
@@ -123,11 +131,36 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
             JOIN lemmas l   ON l.id = wf.lemma_id
             LEFT JOIN pos p ON p.id = l.pos_id
             WHERE wf.form_norm LIKE ?
-            LIMIT 50
+            LIMIT 100
         """.trimIndent()
-        dbHelper.database.rawQuery(sqlLike, arrayOf("%$key%")).use { cursor ->
-            buildHits(cursor)
+        patterns.forEach { pattern ->
+            dbHelper.database.rawQuery(sqlLike, arrayOf("%$pattern%")).use { cursor ->
+                buildHits(cursor).forEach { hits[it.id] = it }
+            }
         }
+
+        hits.values
+            .sortedWith(compareBy(
+                { levenshtein(ChechenNormalizer.normalize(it.headword), key) },
+                { it.headword.length }
+            ))
+            .take(50)
+    }
+
+    private fun levenshtein(a: String, b: String): Int {
+        if (a == b) return 0
+        if (a.isEmpty()) return b.length
+        if (b.isEmpty()) return a.length
+        var prev = IntArray(b.length + 1) { it }
+        for (i in 1..a.length) {
+            val curr = IntArray(b.length + 1) { if (it == 0) i else 0 }
+            for (j in 1..b.length) {
+                curr[j] = if (a[i - 1] == b[j - 1]) prev[j - 1]
+                          else minOf(prev[j], curr[j - 1], prev[j - 1]) + 1
+            }
+            prev = curr
+        }
+        return prev[b.length]
     }
 
     // Full article detail by lemma id
@@ -275,12 +308,46 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         }
     }
 
-    // Enrich hits with first 2 senses and gram classes
+    // Enrich hits with first 2 senses and gram classes (single batch query per type)
     suspend fun enrichHits(hits: List<LemmaHit>): List<LemmaHit> = withContext(Dispatchers.IO) {
+        if (hits.isEmpty()) return@withContext emptyList()
+        val ids = hits.map { it.id }
+        val placeholders = ids.joinToString(",") { "?" }
+        val args = ids.map { it.toString() }.toTypedArray()
+
+        val sensesMap = mutableMapOf<Long, MutableList<String>>()
+        dbHelper.database.rawQuery(
+            "SELECT lemma_id, gloss_ru FROM senses WHERE lemma_id IN ($placeholders) ORDER BY lemma_id, sense_no",
+            args
+        ).use { c ->
+            while (c.moveToNext()) {
+                val lid = c.getLong(0)
+                val g = c.getString(1) ?: continue
+                sensesMap.getOrPut(lid) { mutableListOf() }.also { if (it.size < 2) it.add(g) }
+            }
+        }
+
+        val classesMap = mutableMapOf<Long, MutableList<GramClass>>()
+        dbHelper.database.rawQuery(
+            """SELECT lc.lemma_id, gc.marker, nt.code
+               FROM lemma_class lc
+               JOIN gram_class gc ON gc.id = lc.class_id
+               JOIN number_type nt ON nt.id = lc.number_id
+               WHERE lc.lemma_id IN ($placeholders)""",
+            args
+        ).use { c ->
+            while (c.moveToNext()) {
+                val lid = c.getLong(0)
+                classesMap.getOrPut(lid) { mutableListOf() }
+                    .add(GramClass(c.getString(1) ?: "", c.getString(2) ?: ""))
+            }
+        }
+
         hits.map { hit ->
-            val senses = getSenses(hit.id).take(2).map { it.glossRu }
-            val classes = getClasses(hit.id)
-            hit.copy(firstSenses = senses, classes = classes)
+            hit.copy(
+                firstSenses = sensesMap[hit.id] ?: emptyList(),
+                classes = classesMap[hit.id] ?: emptyList()
+            )
         }
     }
 

@@ -31,7 +31,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -201,22 +200,11 @@ fun SearchScreen(
                     }
 
                     state.hasNoResults -> {
-                        Column(
-                            modifier = Modifier.align(Alignment.Center),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
+                        Box(modifier = Modifier.align(Alignment.Center)) {
                             Text(
                                 "Ничего не найдено",
                                 style = MaterialTheme.typography.bodyLarge
                             )
-                            if (state.suggestFuzzy) {
-                                TextButton(
-                                    onClick = { viewModel.onIntent(SearchIntent.RetryFuzzy) }
-                                ) {
-                                    Text("Поиск по части слова / опечатки")
-                                }
-                            }
                         }
                     }
 
@@ -225,6 +213,16 @@ fun SearchScreen(
                             contentPadding = PaddingValues(vertical = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            if (state.isFuzzyResults) {
+                                item {
+                                    Text(
+                                        "Похожие слова:",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(bottom = 2.dp, top = 4.dp)
+                                    )
+                                }
+                            }
                             items(state.results, key = { it.id }) { hit ->
                                 HitCard(hit = hit, onClick = { onNavigateToDetail(hit.id) })
                             }

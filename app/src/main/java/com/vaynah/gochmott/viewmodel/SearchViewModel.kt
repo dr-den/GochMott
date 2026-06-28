@@ -23,7 +23,7 @@ data class SearchState(
     val isLoading: Boolean = false,
     val results: List<LemmaHit> = emptyList(),
     val hasNoResults: Boolean = false,
-    val suggestFuzzy: Boolean = false,
+    val isFuzzyResults: Boolean = false,
     val dbReady: Boolean = false,
     val dbError: String? = null
 )
@@ -32,7 +32,6 @@ sealed class SearchIntent {
     data class QueryChanged(val query: String) : SearchIntent()
     object SwapDirection : SearchIntent()
     object ClearQuery : SearchIntent()
-    object RetryFuzzy : SearchIntent()
 }
 
 @HiltViewModel
@@ -69,7 +68,6 @@ class SearchViewModel @Inject constructor(
             is SearchIntent.QueryChanged -> onQueryChanged(intent.query)
             is SearchIntent.SwapDirection -> onSwapDirection()
             is SearchIntent.ClearQuery -> onClearQuery()
-            is SearchIntent.RetryFuzzy -> onRetryFuzzy()
         }
     }
 
@@ -101,24 +99,8 @@ class SearchViewModel @Inject constructor(
         _state.update {
             it.copy(
                 query = "", results = emptyList(),
-                hasNoResults = false, suggestFuzzy = false, isLoading = false
+                hasNoResults = false, isFuzzyResults = false, isLoading = false
             )
-        }
-    }
-
-    private fun onRetryFuzzy() {
-        val q = _state.value.query
-        if (q.isBlank()) return
-        viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, suggestFuzzy = false) }
-            val results = repository.searchFuzzy(q)
-            _state.update {
-                it.copy(
-                    isLoading = false,
-                    results = results,
-                    hasNoResults = results.isEmpty()
-                )
-            }
         }
     }
 
@@ -126,26 +108,32 @@ class SearchViewModel @Inject constructor(
         searchJob?.cancel()
         if (query.isBlank()) {
             _state.update {
-                it.copy(results = emptyList(), hasNoResults = false, suggestFuzzy = false, isLoading = false)
+                it.copy(results = emptyList(), hasNoResults = false, isFuzzyResults = false, isLoading = false)
             }
             return
         }
         searchJob = viewModelScope.launch {
             delay(250) // debounce
             if (!_state.value.dbReady) return@launch
-            _state.update { it.copy(isLoading = true, suggestFuzzy = false) }
+            _state.update { it.copy(isLoading = true, isFuzzyResults = false) }
             val hits = when (direction) {
                 SearchDirection.CE_TO_RU -> repository.searchChechen(query)
                 SearchDirection.RU_TO_CE -> repository.searchRussian(query)
             }
-            val enriched = repository.enrichHits(hits)
-            _state.update {
-                it.copy(
-                    isLoading = false,
-                    results = enriched,
-                    hasNoResults = enriched.isEmpty(),
-                    suggestFuzzy = enriched.isEmpty() && direction == SearchDirection.CE_TO_RU
-                )
+            if (hits.isNotEmpty()) {
+                val enriched = repository.enrichHits(hits)
+                _state.update {
+                    it.copy(isLoading = false, results = enriched, hasNoResults = enriched.isEmpty(), isFuzzyResults = false)
+                }
+            } else if (direction == SearchDirection.CE_TO_RU) {
+                val fuzzy = repository.enrichHits(repository.searchFuzzy(query))
+                _state.update {
+                    it.copy(isLoading = false, results = fuzzy, hasNoResults = fuzzy.isEmpty(), isFuzzyResults = fuzzy.isNotEmpty())
+                }
+            } else {
+                _state.update {
+                    it.copy(isLoading = false, results = emptyList(), hasNoResults = true, isFuzzyResults = false)
+                }
             }
         }
     }
