@@ -22,12 +22,17 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedFilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenu
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -35,6 +40,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.SpanStyle
@@ -42,6 +50,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -213,18 +222,28 @@ fun SearchScreen(
                             contentPadding = PaddingValues(vertical = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            if (state.isFuzzyResults) {
-                                item {
-                                    Text(
-                                        "Похожие слова:",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(bottom = 2.dp, top = 4.dp)
+                            if (state.direction == SearchDirection.RU_TO_CE) {
+                                item(key = "ru_che_group") {
+                                    RuCheGroupView(
+                                        query = state.query,
+                                        hits = state.results,
+                                        onHitSelected = onNavigateToDetail
                                     )
                                 }
-                            }
-                            items(state.results, key = { it.id }) { hit ->
-                                HitCard(hit = hit, onClick = { onNavigateToDetail(hit.id) })
+                            } else {
+                                if (state.isFuzzyResults) {
+                                    item {
+                                        Text(
+                                            "Похожие слова:",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(bottom = 2.dp, top = 4.dp)
+                                        )
+                                    }
+                                }
+                                items(state.results, key = { it.id }) { hit ->
+                                    HitCard(hit = hit, onClick = { onNavigateToDetail(hit.id) })
+                                }
                             }
                         }
                     }
@@ -324,6 +343,103 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RuCheGroupView(
+    query: String,
+    hits: List<LemmaHit>,
+    onHitSelected: (Long) -> Unit
+) {
+    var dropdownExpanded by remember { mutableStateOf(false) }
+    var selectedHit by remember(hits) {
+        mutableStateOf(if (hits.size == 1) hits[0] else null)
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = query,
+            style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp),
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+
+        if (hits.size == 1) {
+            HitCard(hit = hits[0], onClick = { onHitSelected(hits[0].id) })
+        } else {
+            Text(
+                "Варианты перевода (${hits.size}):",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            ExposedDropdownMenuBox(
+                expanded = dropdownExpanded,
+                onExpandedChange = { dropdownExpanded = it }
+            ) {
+                OutlinedTextField(
+                    value = selectedHit?.let { h ->
+                        buildString {
+                            append(h.headword)
+                            if (h.pos != null) append(" (${h.pos})")
+                        }
+                    } ?: "Выберите чеченский вариант…",
+                    onValueChange = {},
+                    readOnly = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                    modifier = Modifier
+                        .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                        .fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium
+                )
+                ExposedDropdownMenu(
+                    expanded = dropdownExpanded,
+                    onDismissRequest = { dropdownExpanded = false }
+                ) {
+                    hits.forEach { hit ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(hit.headword, fontWeight = FontWeight.Bold)
+                                    if (hit.pos != null) {
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            hit.pos,
+                                            fontStyle = FontStyle.Italic,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.secondary
+                                        )
+                                    }
+                                    if (hit.firstSenses.isNotEmpty()) {
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            "— ${hit.firstSenses[0]}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        )
+                                    }
+                                }
+                            },
+                            onClick = {
+                                selectedHit = hit
+                                dropdownExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            selectedHit?.let { hit ->
+                HitCard(hit = hit, onClick = { onHitSelected(hit.id) })
             }
         }
     }
