@@ -24,20 +24,25 @@ data class SearchState(
     val isLoading: Boolean = false,
     /** Точные совпадения — всегда идут первыми. */
     val exactResults: List<LemmaHit> = emptyList(),
-    /** Примерные совпадения — отдельным блоком под точными. */
+    /** ЧЕ→РУ: похожие статьи отдельным блоком под точными. */
     val fuzzyResults: List<LemmaHit> = emptyList(),
-    /** Примерный поиск ещё идёт: рано говорить «ничего не найдено». */
+    /** РУ→ЧЕ: похожие русские слова. Только когда точного слова в словаре нет. */
+    val suggestions: List<String> = emptyList(),
+    /** Поиск похожих ещё идёт: рано говорить «ничего не найдено». */
     val isFuzzyLoading: Boolean = false,
     val dbReady: Boolean = false,
     val dbError: String? = null
 ) {
     val hasExact: Boolean get() = exactResults.isNotEmpty()
     val hasNoResults: Boolean
-        get() = exactResults.isEmpty() && fuzzyResults.isEmpty() && !isFuzzyLoading
+        get() = exactResults.isEmpty() && fuzzyResults.isEmpty() &&
+                suggestions.isEmpty() && !isFuzzyLoading
 }
 
 sealed class SearchIntent {
     data class QueryChanged(val query: String) : SearchIntent()
+    /** Пользователь выбрал одно из предложенных русских слов. */
+    data class SuggestionSelected(val word: String) : SearchIntent()
     object SwapDirection : SearchIntent()
     object ClearQuery : SearchIntent()
 }
@@ -80,6 +85,7 @@ class SearchViewModel @Inject constructor(
     fun onIntent(intent: SearchIntent) {
         when (intent) {
             is SearchIntent.QueryChanged -> onQueryChanged(intent.query)
+            is SearchIntent.SuggestionSelected -> onSuggestionSelected(intent.word)
             is SearchIntent.SwapDirection -> onSwapDirection()
             is SearchIntent.ClearQuery -> onClearQuery()
         }
@@ -88,6 +94,15 @@ class SearchViewModel @Inject constructor(
     private fun onQueryChanged(query: String) {
          _state.update { it.copy(query = query) }
         scheduleSearch(query, _state.value.direction)
+    }
+
+    /**
+     * Выбранная подсказка становится запросом — дальше это обычный поиск, поэтому
+     * пользователь видит переводы именно выбранного слова и может править его дальше.
+     */
+    private fun onSuggestionSelected(word: String) {
+        _state.update { it.copy(query = word, suggestions = emptyList()) }
+        scheduleSearch(word, _state.value.direction)
     }
 
     private fun onSwapDirection() {
@@ -111,14 +126,19 @@ class SearchViewModel @Inject constructor(
     private fun SearchState.cleared() = copy(
         exactResults = emptyList(),
         fuzzyResults = emptyList(),
+        suggestions = emptyList(),
         isLoading = false,
         isFuzzyLoading = false
     )
 
     /**
-     * Точный и примерный поиск идут всегда — двумя шагами. Точные совпадения показываем
-     * сразу, примерные догружаются следом (первый прогон ещё строит индекс скелетов) и
-     * попадают в отдельный блок под точными.
+     * Поиск идёт двумя шагами: точные совпадения показываем сразу, похожее догружается
+     * следом (первый прогон ещё строит индекс скелетов).
+     *
+     * Второй шаг у направлений разный. ЧЕ→РУ показывает похожие статьи всегда: чеченское
+     * написание пользователь путает и при удачном совпадении («куг» → «куьг»). РУ→ЧЕ ищет
+     * похожие СЛОВА и только если точного слова в словаре нет — когда «пол» нашёлся,
+     * подмешивать к нему статьи «поля» и «полено» нельзя.
      */
     private fun scheduleSearch(query: String, direction: SearchDirection) {
         searchJob?.cancel()
@@ -129,7 +149,12 @@ class SearchViewModel @Inject constructor(
         searchJob = viewModelScope.launch {
             delay(250) // debounce
             if (!_state.value.dbReady) return@launch
-            _state.update { it.copy(isLoading = true, isFuzzyLoading = true, fuzzyResults = emptyList()) }
+            _state.update {
+                it.copy(
+                    isLoading = true, isFuzzyLoading = true,
+                    fuzzyResults = emptyList(), suggestions = emptyList()
+                )
+            }
 
             val exact = repository.enrichHits(
                 when (direction) {
@@ -140,14 +165,23 @@ class SearchViewModel @Inject constructor(
             ensureActive()
             _state.update { it.copy(isLoading = false, exactResults = exact) }
 
-            val fuzzy = repository.enrichHits(
-                when (direction) {
-                    SearchDirection.CE_TO_RU -> repository.searchChechenFuzzy(query, exact.mapTo(HashSet()) { it.id })
-                    SearchDirection.RU_TO_CE -> repository.searchRussianFuzzy(query, exact.mapTo(HashSet()) { it.id })
+            when {
+                direction == SearchDirection.CE_TO_RU -> {
+                    val fuzzy = repository.enrichHits(
+                        repository.searchChechenFuzzy(query, exact.mapTo(HashSet()) { it.id })
+                    )
+                    ensureActive()
+                    _state.update { it.copy(fuzzyResults = fuzzy, isFuzzyLoading = false) }
                 }
-            )
-            ensureActive()
-            _state.update { it.copy(fuzzyResults = fuzzy, isFuzzyLoading = false) }
+
+                exact.isEmpty() -> {
+                    val words = repository.suggestRussianWords(query)
+                    ensureActive()
+                    _state.update { it.copy(suggestions = words, isFuzzyLoading = false) }
+                }
+
+                else -> _state.update { it.copy(isFuzzyLoading = false) }
+            }
         }
     }
 

@@ -4,6 +4,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -229,7 +232,21 @@ fun SearchScreen(
                                 }
                             }
 
-                            // 2. Примерные совпадения — отдельным блоком под точными
+                            // 2а. РУ→ЧЕ: похожие русские слова вместо статей — сначала
+                            // пользователь выбирает слово, потом видит его переводы
+                            if (state.suggestions.isNotEmpty()) {
+                                item(key = "suggestions") {
+                                    SuggestionsBlock(
+                                        query = state.query,
+                                        words = state.suggestions,
+                                        onWordSelected = {
+                                            viewModel.onIntent(SearchIntent.SuggestionSelected(it))
+                                        }
+                                    )
+                                }
+                            }
+
+                            // 2б. ЧЕ→РУ: похожие статьи отдельным блоком под точными
                             if (state.fuzzyResults.isNotEmpty()) {
                                 item(key = "fuzzy_header") {
                                     FuzzyHeader(query = state.query, hasExact = state.hasExact)
@@ -237,7 +254,7 @@ fun SearchScreen(
                                 items(state.fuzzyResults, key = { "fuzzy_${it.id}" }) { hit ->
                                     HitCard(hit = hit, onClick = { onNavigateToDetail(hit.id) })
                                 }
-                            } else if (state.isFuzzyLoading) {
+                            } else if (state.suggestions.isEmpty() && state.isFuzzyLoading) {
                                 item(key = "fuzzy_loading") {
                                     Row(
                                         modifier = Modifier
@@ -286,16 +303,51 @@ private fun FuzzyHeader(query: String, hasExact: Boolean) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         } else {
-            Text(
-                text = buildAnnotatedString {
-                    append("Слова «")
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(query.trim()) }
-                    append("» в словаре нет. Возможно, вы искали одно из этих:")
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            NotFoundText(query)
             Spacer(Modifier.height(6.dp))
+        }
+    }
+}
+
+@Composable
+private fun NotFoundText(query: String) {
+    Text(
+        text = buildAnnotatedString {
+            append("Слова «")
+            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(query.trim()) }
+            append("» в словаре нет. Может быть, вы имели в виду:")
+        },
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+}
+
+/**
+ * РУ→ЧЕ: похожие русские слова. Показываем именно слова, а не сразу статьи — переводы
+ * разных слов в одном списке не различить, поэтому сначала пусть пользователь выберет
+ * слово, а по нажатию оно станет запросом и покажутся его переводы.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SuggestionsBlock(
+    query: String,
+    words: List<String>,
+    onWordSelected: (String) -> Unit
+) {
+    Column(modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)) {
+        NotFoundText(query)
+        Spacer(Modifier.height(10.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            words.forEach { word ->
+                SuggestionChip(
+                    onClick = { onWordSelected(word) },
+                    label = { Text(word) },
+                    shape = MaterialTheme.shapes.small
+                )
+            }
         }
     }
 }

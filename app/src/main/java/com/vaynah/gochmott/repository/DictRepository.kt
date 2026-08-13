@@ -23,9 +23,10 @@ import javax.inject.Singleton
 class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
 
     private companion object {
-        const val MIN_FUZZY_LEN = 2   // короче — совпадёт пол-словаря
-        const val FUZZY_LIMIT = 30    // сколько «похожих» отдаём в UI
-        const val RU_FUZZY_WORDS = 8  // сколько похожих русских слов раскрываем в статьи
+        const val MIN_FUZZY_LEN = 2        // короче — совпадёт пол-словаря
+        const val FUZZY_LIMIT = 30         // сколько «похожих» чеченских статей отдаём в UI
+        const val RU_SUGGESTION_LIMIT = 10 // сколько похожих русских слов предлагаем
+        const val RU_HITS_LIMIT = 100      // потолок статей на одно русское слово
     }
 
     // Path A: Chechen → Russian (exact normalized form match)
@@ -34,7 +35,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         if (key.isEmpty()) return@withContext emptyList()
 
         val sql = """
-            SELECT l.id, l.headword, l.homograph_n, p.code AS pos,
+            SELECT l.id, l.headword, l.homograph_n, p.name_ru AS pos,
                    l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note,
                    MAX(wf.is_headword) AS exact_headword
             FROM word_forms wf
@@ -50,19 +51,28 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         }
     }
 
-    // Path B: Russian → Chechen (reverse index by stem).
+    // Path B: Russian → Chechen (reverse index).
     // ru_index ссылается прямо на lemmas.id — джойн через senses не нужен, а какое именно
     // значение дало совпадение, индекс не хранит: глоссы навешивает enrichHits.
+    //
+    // Сначала ТОЧНОЕ слово: если «пол» есть в индексе, отдаём ровно его статьи и ничего
+    // больше не подмешиваем. Поиск по основе Snowball — только запасной путь для форм,
+    // которых в индексе нет: основа у «пол» общая с «поле», «полено», «полый» (8 статей
+    // против 30), у «вода» — с «водить». Как отдельный путь это мусор в выдаче.
     suspend fun searchRussian(input: String): List<LemmaHit> = withContext(Dispatchers.IO) {
-        val word = input.trim()
+        val word = normalizeRussian(input)
         if (word.isEmpty()) return@withContext emptyList()
 
-        val stem = RuStem.stem(word)
+        val exact = hitsForRussianWord(word)
+        if (exact.isNotEmpty()) return@withContext exact
 
-        // Primary: search by stem. DISTINCT нужен: разные словоформы («рука», «руки»)
-        // имеют одну основу и ведут в одну статью.
+        val stem = RuStem.stem(word)
+        if (stem.isEmpty()) return@withContext emptyList()
+
+        // DISTINCT нужен: разные словоформы («рука», «руки») имеют одну основу
+        // и ведут в одну статью.
         val sqlByStem = """
-            SELECT DISTINCT l.id, l.headword, l.homograph_n, p.code AS pos,
+            SELECT DISTINCT l.id, l.headword, l.homograph_n, p.name_ru AS pos,
                    l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note,
                    0 AS exact_headword
             FROM ru_index ri
@@ -70,35 +80,15 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
             LEFT JOIN pos p ON p.id = l.pos_id
             WHERE ri.stem = ?
             ORDER BY l.headword
-            LIMIT 100
+            LIMIT $RU_HITS_LIMIT
         """.trimIndent()
 
-        var results = dbHelper.database.rawQuery(sqlByStem, arrayOf(stem)).use { cursor ->
-            buildHits(cursor)
-        }
-
-        // Fallback: exact word or prefix match if stem search returns nothing
-        if (results.isEmpty()) {
-            val normalized = word.lowercase().replace('ё', 'е')
-            val sqlFallback = """
-                SELECT DISTINCT l.id, l.headword, l.homograph_n, p.code AS pos,
-                       l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note,
-                       0 AS exact_headword
-                FROM ru_index ri
-                JOIN lemmas l   ON l.id = ri.lemma_id
-                LEFT JOIN pos p ON p.id = l.pos_id
-                WHERE ri.word = ? OR ri.word LIKE ?
-                ORDER BY l.headword
-                LIMIT 100
-            """.trimIndent()
-            results = dbHelper.database.rawQuery(
-                sqlFallback,
-                arrayOf(normalized, "$normalized%")
-            ).use { cursor -> buildHits(cursor) }
-        }
-
-        results
+        dbHelper.database.rawQuery(sqlByStem, arrayOf(stem)).use { buildHits(it) }
     }
+
+    /** Так же, как нормализованы ключи `ru_index.word` при сборке БД. */
+    private fun normalizeRussian(input: String): String =
+        input.trim().lowercase().replace('ё', 'е')
 
     // Path C: примерный поиск чеч→рус. Идёт ВСЕГДА, параллельно точному, — потому что
     // «куг»/«кюг» вместо «куьг» не находятся ни точным поиском, ни подстрокой:
@@ -115,18 +105,10 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         val candidates = HashMap<Long, FuzzyCandidate>()
         fun offer(lemmaId: Long, candidateSkeleton: String) {
             if (lemmaId in exclude) return
-            val rank = FuzzyKey.rank(candidateSkeleton, skeleton, maxEdits)
-            if (rank > maxRank) return
+            val scored = scoreCandidate(candidateSkeleton, skeleton, maxEdits)
+            if (scored.rank > maxRank) return
             val prev = candidates[lemmaId]
-            if (prev == null || rank < prev.rank) {
-                candidates[lemmaId] = FuzzyCandidate(
-                    rank = rank,
-                    // при равном ранге вперёд идут слова с более длинным общим началом:
-                    // опечатка обычно не в первой букве
-                    commonPrefix = candidateSkeleton.commonPrefixWith(skeleton).length,
-                    length = candidateSkeleton.length
-                )
-            }
+            if (prev == null || scored < prev) candidates[lemmaId] = scored
         }
 
         // 1) скелеты заголовков: куг/кюг → куьг, мостаг → мостагӀ, хума → хӀума
@@ -138,54 +120,65 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
             offer(lemmaId, FuzzyKey.chechen(headword))
         }
 
-        val order = candidates.entries.sortedWith(
-            compareBy({ it.value.rank }, { -it.value.commonPrefix }, { it.value.length }, { it.key })
-        ).take(FUZZY_LIMIT).map { it.key }
+        val order = candidates.entries
+            .sortedWith(compareBy({ it.value }, { it.key }))
+            .take(FUZZY_LIMIT).map { it.key }
 
         val byId = loadHits(order).associateBy { it.id }
         order.mapNotNull { byId[it] }
     }
 
-    // Path D: примерный поиск рус→чеч — опечатки и другая форма русского слова.
-    suspend fun searchRussianFuzzy(
+    /**
+     * Path D: похожие РУССКИЕ СЛОВА — подсказки на случай, когда точного слова в индексе
+     * нет. Возвращает слова, а не статьи: пользователь сначала выбирает слово, и только
+     * потом видит его переводы. Смешивать статьи разных слов в одну выдачу нельзя —
+     * непонятно, что чему перевод.
+     */
+    suspend fun suggestRussianWords(
         input: String,
-        exclude: Set<Long> = emptySet()
-    ): List<LemmaHit> = withContext(Dispatchers.IO) {
+        limit: Int = RU_SUGGESTION_LIMIT
+    ): List<String> = withContext(Dispatchers.IO) {
         val skeleton = FuzzyKey.russian(input.trim())
         if (skeleton.length < MIN_FUZZY_LEN) return@withContext emptyList()
         val maxEdits = FuzzyKey.maxEdits(skeleton.length)
         val maxRank = FuzzyKey.maxRank(skeleton.length)
 
         val index = fuzzyIndex()
-        val words = ArrayList<Pair<String, FuzzyCandidate>>()
+        val scored = ArrayList<Pair<String, FuzzyCandidate>>()
         for (i in index.ruWord.indices) {
-            val candidateSkeleton = index.ruSkeleton[i]
-            val rank = FuzzyKey.rank(candidateSkeleton, skeleton, maxEdits)
-            if (rank > maxRank) continue
-            words.add(
-                index.ruWord[i] to FuzzyCandidate(
-                    rank = rank,
-                    commonPrefix = candidateSkeleton.commonPrefixWith(skeleton).length,
-                    length = candidateSkeleton.length
-                )
-            )
+            val candidate = scoreCandidate(index.ruSkeleton[i], skeleton, maxEdits)
+            if (candidate.rank > maxRank) continue
+            scored.add(index.ruWord[i] to candidate)
         }
-        if (words.isEmpty()) return@withContext emptyList()
 
-        val hits = LinkedHashMap<Long, LemmaHit>()
-        words.sortedWith(
-            compareBy({ it.second.rank }, { -it.second.commonPrefix }, { it.second.length }, { it.first })
-        ).take(RU_FUZZY_WORDS).forEach { (word, _) ->
-            if (hits.size < FUZZY_LIMIT) {
-                hitsForRussianWord(word).forEach { hit ->
-                    if (hit.id !in exclude && !hits.containsKey(hit.id)) hits[hit.id] = hit
-                }
-            }
-        }
-        hits.values.take(FUZZY_LIMIT)
+        scored.sortedWith(compareBy({ it.second }, { it.first }))
+            .map { it.first }.distinct().take(limit)
     }
 
-    private data class FuzzyCandidate(val rank: Int, val commonPrefix: Int, val length: Int)
+    private data class FuzzyCandidate(
+        val rank: Int,
+        /** Длина общего начала с запросом: опечатка обычно не в первой букве. */
+        val commonPrefix: Int,
+        /** Насколько кандидат отличается длиной от запроса. */
+        val lengthDelta: Int,
+        val length: Int
+    ) : Comparable<FuzzyCandidate> {
+        override fun compareTo(other: FuzzyCandidate): Int = COMPARATOR.compare(this, other)
+
+        companion object {
+            private val COMPARATOR = compareBy<FuzzyCandidate>(
+                { it.rank }, { -it.commonPrefix }, { it.lengthDelta }, { it.length }
+            )
+        }
+    }
+
+    private fun scoreCandidate(candidateSkeleton: String, query: String, maxEdits: Int) =
+        FuzzyCandidate(
+            rank = FuzzyKey.rank(candidateSkeleton, query, maxEdits),
+            commonPrefix = candidateSkeleton.commonPrefixWith(query).length,
+            lengthDelta = kotlin.math.abs(candidateSkeleton.length - query.length),
+            length = candidateSkeleton.length
+        )
 
     /** Словоформы, содержащие ключ как подстроку (FTS5-триграммы + LIKE). */
     private fun substringFormMatches(key: String): List<Pair<Long, String>> {
@@ -230,10 +223,14 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         return found.map { it.key to it.value }
     }
 
-    /** Статьи для одного русского слова. PK `(word, lemma_id)` — дублей быть не может. */
+    /**
+     * Все статьи, связанные с одним русским словом. PK `(word, lemma_id)` гарантирует,
+     * что дублей не будет. Потолок нужен из-за служебных «слов», просочившихся в индекс
+     * при разборе словаря («мн» — 655 статей, «прич» — 391).
+     */
     private fun hitsForRussianWord(word: String): List<LemmaHit> {
         val sql = """
-            SELECT l.id, l.headword, l.homograph_n, p.code AS pos,
+            SELECT l.id, l.headword, l.homograph_n, p.name_ru AS pos,
                    l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note,
                    0 AS exact_headword
             FROM ru_index ri
@@ -241,7 +238,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
             LEFT JOIN pos p ON p.id = l.pos_id
             WHERE ri.word = ?
             ORDER BY l.headword
-            LIMIT 40
+            LIMIT $RU_HITS_LIMIT
         """.trimIndent()
         return dbHelper.database.rawQuery(sql, arrayOf(word)).use { buildHits(it) }
     }
@@ -250,7 +247,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         if (ids.isEmpty()) return emptyList()
         val placeholders = ids.joinToString(",") { "?" }
         val sql = """
-            SELECT l.id, l.headword, l.homograph_n, p.code AS pos,
+            SELECT l.id, l.headword, l.homograph_n, p.name_ru AS pos,
                    l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note,
                    0 AS exact_headword
             FROM lemmas l
@@ -336,7 +333,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
 
     private fun getLemmaHit(lemmaId: Long): LemmaHit {
         val sql = """
-            SELECT l.id, l.headword, l.homograph_n, p.code AS pos,
+            SELECT l.id, l.headword, l.homograph_n, p.name_ru AS pos,
                    l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note,
                    1 AS exact_headword
             FROM lemmas l

@@ -26,7 +26,15 @@ object FuzzyKey {
         'ю' to 'у', 'я' to 'а', 'э' to 'е', 'ё' to 'е'
     )
 
-    private val RU_FOLD: Map<Char, Char> = mapOf('ё' to 'е')
+    /**
+     * Безударные гласные, которые в русском путают чаще всего: «малако» вместо «молоко»,
+     * «сабака» вместо «собака», «висна» вместо «весна». Плюс ё→е, как в ключах БД.
+     * Скелет участвует ТОЛЬКО в подсказках — точный поиск идёт по `ru_index.word`,
+     * поэтому склейка «мал»/«мол» на точность выдачи не влияет.
+     */
+    private val RU_FOLD: Map<Char, Char> = mapOf(
+        'а' to 'о', 'ё' to 'е', 'и' to 'е'
+    )
 
     /** Скелет чеченского слова. Вход прогоняется через штатный [ChechenNormalizer]. */
     fun chechen(input: String?): String = fold(ChechenNormalizer.normalize(input), CE_FOLD)

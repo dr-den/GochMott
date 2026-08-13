@@ -35,7 +35,24 @@ class FuzzyKeyTest {
     fun `russian skeleton folds yo and soft signs`() {
         assertEquals(FuzzyKey.russian("ёлка"), FuzzyKey.russian("елка"))
         assertEquals(FuzzyKey.russian("конь"), FuzzyKey.russian("кон"))
-        assertEquals("рука", FuzzyKey.russian("Рука"))
+        assertEquals(FuzzyKey.russian("рука"), FuzzyKey.russian("РУКА"))
+    }
+
+    /** Безударные гласные, на которых чаще всего ошибаются. */
+    @Test
+    fun `russian skeleton folds confusable unstressed vowels`() {
+        assertEquals(FuzzyKey.russian("молоко"), FuzzyKey.russian("малако"))
+        assertEquals(FuzzyKey.russian("собака"), FuzzyKey.russian("сабака"))
+        assertEquals(FuzzyKey.russian("домой"), FuzzyKey.russian("дамой"))
+        assertEquals(FuzzyKey.russian("весна"), FuzzyKey.russian("висна"))
+        assertEquals(FuzzyKey.russian("корова"), FuzzyKey.russian("карова"))
+    }
+
+    /** Согласные не складываем — иначе подсказки поплывут. */
+    @Test
+    fun `russian skeleton keeps consonants apart`() {
+        assertTrue(FuzzyKey.russian("нож") != FuzzyKey.russian("нос"))
+        assertTrue(FuzzyKey.russian("дом") != FuzzyKey.russian("том"))
     }
 
     /** Ранги: точный скелет → начало слова → подстрока → опечатка. */
