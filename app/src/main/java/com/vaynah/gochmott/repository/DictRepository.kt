@@ -50,21 +50,23 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         }
     }
 
-    // Path B: Russian → Chechen (reverse index by stem)
+    // Path B: Russian → Chechen (reverse index by stem).
+    // ru_index ссылается прямо на lemmas.id — джойн через senses не нужен, а какое именно
+    // значение дало совпадение, индекс не хранит: глоссы навешивает enrichHits.
     suspend fun searchRussian(input: String): List<LemmaHit> = withContext(Dispatchers.IO) {
         val word = input.trim()
         if (word.isEmpty()) return@withContext emptyList()
 
         val stem = RuStem.stem(word)
 
-        // Primary: search by stem
+        // Primary: search by stem. DISTINCT нужен: разные словоформы («рука», «руки»)
+        // имеют одну основу и ведут в одну статью.
         val sqlByStem = """
             SELECT DISTINCT l.id, l.headword, l.homograph_n, p.code AS pos,
                    l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note,
-                   0 AS exact_headword, s.gloss_ru
+                   0 AS exact_headword
             FROM ru_index ri
-            JOIN senses s   ON s.id = ri.sense_id
-            JOIN lemmas l   ON l.id = s.lemma_id
+            JOIN lemmas l   ON l.id = ri.lemma_id
             LEFT JOIN pos p ON p.id = l.pos_id
             WHERE ri.stem = ?
             ORDER BY l.headword
@@ -72,7 +74,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         """.trimIndent()
 
         var results = dbHelper.database.rawQuery(sqlByStem, arrayOf(stem)).use { cursor ->
-            buildHitsWithGloss(cursor)
+            buildHits(cursor)
         }
 
         // Fallback: exact word or prefix match if stem search returns nothing
@@ -81,10 +83,9 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
             val sqlFallback = """
                 SELECT DISTINCT l.id, l.headword, l.homograph_n, p.code AS pos,
                        l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note,
-                       0 AS exact_headword, s.gloss_ru
+                       0 AS exact_headword
                 FROM ru_index ri
-                JOIN senses s   ON s.id = ri.sense_id
-                JOIN lemmas l   ON l.id = s.lemma_id
+                JOIN lemmas l   ON l.id = ri.lemma_id
                 LEFT JOIN pos p ON p.id = l.pos_id
                 WHERE ri.word = ? OR ri.word LIKE ?
                 ORDER BY l.headword
@@ -93,7 +94,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
             results = dbHelper.database.rawQuery(
                 sqlFallback,
                 arrayOf(normalized, "$normalized%")
-            ).use { cursor -> buildHitsWithGloss(cursor) }
+            ).use { cursor -> buildHits(cursor) }
         }
 
         results
@@ -229,20 +230,20 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         return found.map { it.key to it.value }
     }
 
+    /** Статьи для одного русского слова. PK `(word, lemma_id)` — дублей быть не может. */
     private fun hitsForRussianWord(word: String): List<LemmaHit> {
         val sql = """
-            SELECT DISTINCT l.id, l.headword, l.homograph_n, p.code AS pos,
+            SELECT l.id, l.headword, l.homograph_n, p.code AS pos,
                    l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note,
-                   0 AS exact_headword, s.gloss_ru
+                   0 AS exact_headword
             FROM ru_index ri
-            JOIN senses s   ON s.id = ri.sense_id
-            JOIN lemmas l   ON l.id = s.lemma_id
+            JOIN lemmas l   ON l.id = ri.lemma_id
             LEFT JOIN pos p ON p.id = l.pos_id
             WHERE ri.word = ?
             ORDER BY l.headword
             LIMIT 40
         """.trimIndent()
-        return dbHelper.database.rawQuery(sql, arrayOf(word)).use { buildHitsWithGloss(it) }
+        return dbHelper.database.rawQuery(sql, arrayOf(word)).use { buildHits(it) }
     }
 
     private fun loadHits(ids: List<Long>): List<LemmaHit> {
@@ -505,24 +506,6 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
 
     private fun buildHits(cursor: Cursor): List<LemmaHit> = buildList {
         while (cursor.moveToNext()) add(cursorToHit(cursor))
-    }
-
-    private fun buildHitsWithGloss(cursor: Cursor): List<LemmaHit> {
-        // Deduplicate by lemma id, collect first 2 senses inline
-        val map = linkedMapOf<Long, MutableList<String>>()
-        val hitMap = linkedMapOf<Long, LemmaHit>()
-        while (cursor.moveToNext()) {
-            val hit = cursorToHit(cursor)
-            if (!hitMap.containsKey(hit.id)) {
-                hitMap[hit.id] = hit
-                map[hit.id] = mutableListOf()
-            }
-            val gloss = cursor.getStringOrNull(9)
-            if (gloss != null && (map[hit.id]?.size ?: 0) < 2) {
-                map[hit.id]?.add(gloss)
-            }
-        }
-        return hitMap.values.map { it.copy(firstSenses = map[it.id] ?: emptyList()) }
     }
 
     private fun cursorToHit(cursor: Cursor) = LemmaHit(

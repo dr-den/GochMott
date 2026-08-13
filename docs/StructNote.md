@@ -22,13 +22,13 @@ ORDER BY exact_headword DESC, l.homograph_n; -- точные заголовки 
 Любая косвенная форма (`мостагӀо`, `аьхна`, `ваьккхира`) найдёт свою лемму, т.к. формы перечислены в словаре. Дальше по `l.id` - значения и примеры (см. «Карточка статьи»).
 
 ### B. Русский → чеченский (обратный). По основе слова.
-Подаём `val st = RuStem.stem(word)`.
+Подаём `val st = RuStem.stem(word)`. `ru_index` ссылается **прямо на статью** (`lemmas.id`),
+колонки `sense_id` в нём больше нет — джойн через `senses` не нужен:
 ```sql
 SELECT DISTINCT l.id, l.headword, l.homograph_n, p.code AS pos,
-       s.sense_no, s.gloss_ru
+       l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note
 FROM ru_index ri
-JOIN senses s   ON s.id = ri.sense_id
-JOIN lemmas l   ON l.id = s.lemma_id
+JOIN lemmas l   ON l.id = ri.lemma_id
 LEFT JOIN pos p ON p.id = l.pos_id
 WHERE ri.stem = ?                            -- st
 ORDER BY l.headword
@@ -37,6 +37,15 @@ LIMIT 100;
 Так «врага», «врагов», «врагу» одинаково находят перевод, записанный как «враг».
 Подстраховка, если у БД ещё не прогнан `lemmatize_ru.py` (stem пустой):
 `WHERE ri.word = ? OR ri.word LIKE ? || '%'` (точное слово или префикс).
+
+`DISTINCT` нужен только запросам по `stem`/префиксу: разные словоформы одной основы ведут
+в одну статью. Для точного `WHERE ri.word = ?` дублей не бывает — это гарантирует PK
+`(word, lemma_id)`.
+
+Какое именно значение дало совпадение, индекс не хранит, поэтому глоссы для карточек
+навешиваются отдельно (`DictRepository.enrichHits` — первые два `senses.gloss_ru` статьи).
+Если понадобится подсветка конкретного значения — только через `senses_fts` или
+вхождение в `senses.gloss_norm`.
 
 ### C. Нечёткий/по части слова (опционально, FTS5). Для опечаток и ввода куска.
 Подаём `key = ChechenNormalizer.normalize(input)` (длиной ≥3).

@@ -224,18 +224,8 @@ fun SearchScreen(
                         ) {
                             // 1. Точные совпадения — всегда сверху
                             if (state.hasExact) {
-                                if (state.direction == SearchDirection.RU_TO_CE) {
-                                    item(key = "ru_che_group") {
-                                        RuCheGroupView(
-                                            query = state.query,
-                                            hits = state.exactResults,
-                                            onHitSelected = onNavigateToDetail
-                                        )
-                                    }
-                                } else {
-                                    items(state.exactResults, key = { "exact_${it.id}" }) { hit ->
-                                        HitCard(hit = hit, onClick = { onNavigateToDetail(hit.id) })
-                                    }
+                                items(state.exactResults, key = { "exact_${it.id}" }) { hit ->
+                                    HitCard(hit = hit, onClick = { onNavigateToDetail(hit.id) })
                                 }
                             }
 
@@ -257,7 +247,9 @@ fun SearchScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         CircularProgressIndicator(
-                                            modifier = Modifier.height(16.dp).width(16.dp),
+                                            modifier = Modifier
+                                                .height(16.dp)
+                                                .width(16.dp),
                                             strokeWidth = 2.dp
                                         )
                                         Spacer(Modifier.width(8.dp))
@@ -334,7 +326,9 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
                         text = "${hit.homographN}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 2.dp).alignByBaseline()
+                        modifier = Modifier
+                            .padding(start = 2.dp)
+                            .alignByBaseline()
                     )
                 }
                 if (hit.pos != null) {
@@ -398,103 +392,6 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun RuCheGroupView(
-    query: String,
-    hits: List<LemmaHit>,
-    onHitSelected: (Long) -> Unit
-) {
-    var dropdownExpanded by remember { mutableStateOf(false) }
-    var selectedHit by remember(hits) {
-        mutableStateOf(if (hits.size == 1) hits[0] else null)
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = query,
-            style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp),
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(top = 4.dp)
-        )
-
-        if (hits.size == 1) {
-            HitCard(hit = hits[0], onClick = { onHitSelected(hits[0].id) })
-        } else {
-            Text(
-                "Варианты перевода (${hits.size}):",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            ExposedDropdownMenuBox(
-                expanded = dropdownExpanded,
-                onExpandedChange = { dropdownExpanded = it }
-            ) {
-                OutlinedTextField(
-                    value = selectedHit?.let { h ->
-                        buildString {
-                            append(h.headword)
-                            if (h.pos != null) append(" (${h.pos})")
-                        }
-                    } ?: "Выберите чеченский вариант…",
-                    onValueChange = {},
-                    readOnly = true,
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
-                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                    modifier = Modifier
-                        .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                        .fillMaxWidth(),
-                    shape = MaterialTheme.shapes.medium
-                )
-                ExposedDropdownMenu(
-                    expanded = dropdownExpanded,
-                    onDismissRequest = { dropdownExpanded = false }
-                ) {
-                    hits.forEach { hit ->
-                        DropdownMenuItem(
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(hit.headword, fontWeight = FontWeight.Bold)
-                                    if (hit.pos != null) {
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            hit.pos,
-                                            fontStyle = FontStyle.Italic,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.secondary
-                                        )
-                                    }
-                                    if (hit.firstSenses.isNotEmpty()) {
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(
-                                            "— ${hit.firstSenses[0]}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false)
-                                        )
-                                    }
-                                }
-                            },
-                            onClick = {
-                                selectedHit = hit
-                                dropdownExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
-
-            selectedHit?.let { hit ->
-                HitCard(hit = hit, onClick = { onHitSelected(hit.id) })
             }
         }
     }

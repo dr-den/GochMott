@@ -4,6 +4,23 @@
 Только чтение. Не пересобирать. Кодировка ключей поиска — `normalize_ce.py`
 (в приложении ему соответствует `ChechenNormalizer.kt`).
 
+## Версия базы — `PRAGMA user_version`
+
+Сейчас **2**. База целиком read-only, пользовательских данных в ней нет, поэтому на
+устройстве она не мигрируется, а перезаписывается копией из assets. Признак «пора
+перезаписать» — расхождение `PRAGMA user_version` локальной копии с константой
+`DatabaseHelper.EXPECTED_DB_VERSION`.
+
+**При каждой пересборке dict.db поднимайте оба числа сразу:** `PRAGMA user_version = N`
+в самой БД и `EXPECTED_DB_VERSION = N` в коде. Иначе у тех, кто ставил приложение раньше,
+останется старая копия и запросы к новой схеме упадут. Расхождение ловит юнит-тест
+`DbVersionTest`.
+
+| версия | что изменилось |
+|---:|---|
+| 2 | `ru_index`: `sense_id` → `lemma_id`, PK `(word, lemma_id)`, индекс по `lemma_id` |
+| 1 (или 0) | первая версия словаря |
+
 ## Объёмы
 | таблица | строк | что внутри |
 |---|---:|---|
@@ -12,7 +29,7 @@
 | `word_forms` | 65 998 | все словоформы (ядро прямого поиска) |
 | `examples` | 5 655 | примеры, идиомы, пословицы |
 | `cross_refs` | 1 503 | связи статей (см./ср./видовые пары) |
-| `ru_index` | 58 098 | обратный индекс русских слов (рус→чеч) |
+| `ru_index` | 57 799 | обратный индекс русских слов (рус→чеч, **на уровне статьи**) |
 | `lemma_class` | 9 550 | классы в/й/д/б по числам |
 | `sense_labels` | 5 339 | пометы значений (M:N) |
 | `labels` | 83 | справочник всех помет словаря |
@@ -22,8 +39,8 @@
 lemma (статья) 1─┬─< sense        (значение/перевод)
                  ├─< word_form    (падежи, числа, формы глагола)  ← прямой поиск
                  ├─< lemma_class  (классы в/й/д/б, раздельно ед./мн.)
-                 └─< example      (примеры/идиомы)
-sense 1──< ru_index   (русские слова перевода → значение)         ← обратный поиск
+                 ├─< example      (примеры/идиомы)
+                 └─< ru_index     (русские слова перевода → статья)  ← обратный поиск
 sense M──N labels (через sense_labels)
 cross_ref : lemma ↔ lemma
 ```
@@ -115,14 +132,40 @@ cross_ref : lemma ↔ lemma
 ## Поисковые надстройки
 
 ### `ru_index` — обратный индекс рус→чеч (портативный, без FTS5)
-`word (нормализ. русское слово), stem (основа Snowball — заполняется lemmatize_ru.py), sense_id→senses`.
-PK `(word, sense_id)`, индексы по `word` и `stem`.
-Запрос: `WHERE stem = RuStem.stem(запрос)` (после прогона скрипта) либо фолбэк
-`WHERE word = ? OR word LIKE ?||'%'`.
+
+```sql
+CREATE TABLE ru_index (
+  word     TEXT    NOT NULL,   -- нормализ. русское слово (lower, ё->е, без пунктуации)
+  stem     TEXT,               -- основа Snowball (lemmatize_ru.py / add_ru_stems.py)
+  lemma_id INTEGER NOT NULL REFERENCES lemmas(id) ON DELETE CASCADE,
+  PRIMARY KEY (word, lemma_id)
+) WITHOUT ROWID;
+CREATE INDEX idx_ru_index_word  ON ru_index(word);
+CREATE INDEX idx_ru_index_stem  ON ru_index(stem);
+CREATE INDEX idx_ru_index_lemma ON ru_index(lemma_id);
+```
+
+**Связь идёт напрямую на статью (`lemmas.id`), а не на значение.** Колонки `sense_id` больше нет.
+Раньше индекс указывал на `senses.id`; при миграции `lemma_id` подставлен как `senses.lemma_id`,
+дубли `(word, lemma_id)` схлопнуты (58 098 → 57 799 строк).
+
+Запрос: `WHERE stem = RuStem.stem(запрос)` (после прогона скрипта основ) либо фолбэк
+`WHERE word = ? OR word LIKE ?||'%'`. Джойн результата — сразу на `lemmas`:
+
+```sql
+SELECT DISTINCT l.id, l.headword, l.homograph_n
+FROM ru_index r JOIN lemmas l ON l.id = r.lemma_id
+WHERE r.stem = ?;
+```
+
+Значения для карточки статьи тянутся отдельно: `SELECT * FROM senses WHERE lemma_id = ? ORDER BY sense_no`.
+Какое именно значение дало совпадение, индекс больше не хранит — если нужна подсветка
+конкретного `gloss_ru`, ищи вхождение слова в `senses.gloss_norm` или используй `senses_fts`.
 
 ### `senses_fts` (FTS5) — полнотекст по `gloss_ru`
 Виртуальная, синхронизируется триггерами. Альтернатива `ru_index` для рус→чеч,
 если на устройстве доступен FTS5: `WHERE senses_fts MATCH ?`.
+Это единственный путь, который отдаёт совпадение на уровне **значения** (`senses.id`).
 
 ### `forms_trgm` (FTS5 trigram) — нечёткий/подстрочный поиск по `form_norm`
 Для опечаток и ввода части слова: `WHERE forms_trgm MATCH ?`.
@@ -133,6 +176,9 @@ PK `(word, sense_id)`, индексы по `word` и `stem`.
 ## Что важно помнить
 - **Прямой поиск чеч→рус** (`word_forms.form_norm`) и **обратный рус→чеч** (`ru_index`)
   работают на штатном SQLite любого Android. FTS5 нужен только для нечёткого пути.
+- **Обратный поиск возвращает статьи, а не значения.** Результат `ru_index` — это `lemma_id`;
+  дедупликация по статье уже сделана на уровне PK, дополнительный `DISTINCT`/`GROUP BY` по
+  `sense_id` в коде больше не нужен.
 - Чеченский ввод нормализуй `ChechenNormalizer.normalize()`, русский — `RuStem.stem()`.
   Это те же алгоритмы, которыми построены ключи в БД; иначе матч не сойдётся.
 - `gloss_ru` уже без примеров; примеры/идиомы — в `examples`; русские основы для
