@@ -25,10 +25,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedFilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -222,33 +222,88 @@ fun SearchScreen(
                             contentPadding = PaddingValues(vertical = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            if (state.direction == SearchDirection.RU_TO_CE) {
-                                item(key = "ru_che_group") {
-                                    RuCheGroupView(
-                                        query = state.query,
-                                        hits = state.results,
-                                        onHitSelected = onNavigateToDetail
-                                    )
-                                }
-                            } else {
-                                if (state.isFuzzyResults) {
-                                    item {
-                                        Text(
-                                            "Похожие слова:",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(bottom = 2.dp, top = 4.dp)
+                            // 1. Точные совпадения — всегда сверху
+                            if (state.hasExact) {
+                                if (state.direction == SearchDirection.RU_TO_CE) {
+                                    item(key = "ru_che_group") {
+                                        RuCheGroupView(
+                                            query = state.query,
+                                            hits = state.exactResults,
+                                            onHitSelected = onNavigateToDetail
                                         )
                                     }
+                                } else {
+                                    items(state.exactResults, key = { "exact_${it.id}" }) { hit ->
+                                        HitCard(hit = hit, onClick = { onNavigateToDetail(hit.id) })
+                                    }
                                 }
-                                items(state.results, key = { it.id }) { hit ->
+                            }
+
+                            // 2. Примерные совпадения — отдельным блоком под точными
+                            if (state.fuzzyResults.isNotEmpty()) {
+                                item(key = "fuzzy_header") {
+                                    FuzzyHeader(query = state.query, hasExact = state.hasExact)
+                                }
+                                items(state.fuzzyResults, key = { "fuzzy_${it.id}" }) { hit ->
                                     HitCard(hit = hit, onClick = { onNavigateToDetail(hit.id) })
+                                }
+                            } else if (state.isFuzzyLoading) {
+                                item(key = "fuzzy_loading") {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 12.dp),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.height(16.dp).width(16.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            "Ищем похожие слова…",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Заголовок блока примерных совпадений. Формулировка зависит от того, нашлось ли
+ * точное совпадение: без него это единственный результат и надо объяснить, почему
+ * показано не то, что ввели.
+ */
+@Composable
+private fun FuzzyHeader(query: String, hasExact: Boolean) {
+    Column(modifier = Modifier.padding(top = if (hasExact) 12.dp else 4.dp, bottom = 2.dp)) {
+        if (hasExact) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Похожие слова",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Text(
+                text = buildAnnotatedString {
+                    append("Слова «")
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(query.trim()) }
+                    append("» в словаре нет. Возможно, вы искали одно из этих:")
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(6.dp))
         }
     }
 }

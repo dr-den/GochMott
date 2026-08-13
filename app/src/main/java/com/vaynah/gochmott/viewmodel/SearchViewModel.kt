@@ -10,6 +10,7 @@ import com.vaynah.gochmott.search.ChechenNormalizer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,12 +22,19 @@ data class SearchState(
     val query: String = "",
     val direction: SearchDirection = SearchDirection.CE_TO_RU,
     val isLoading: Boolean = false,
-    val results: List<LemmaHit> = emptyList(),
-    val hasNoResults: Boolean = false,
-    val isFuzzyResults: Boolean = false,
+    /** Точные совпадения — всегда идут первыми. */
+    val exactResults: List<LemmaHit> = emptyList(),
+    /** Примерные совпадения — отдельным блоком под точными. */
+    val fuzzyResults: List<LemmaHit> = emptyList(),
+    /** Примерный поиск ещё идёт: рано говорить «ничего не найдено». */
+    val isFuzzyLoading: Boolean = false,
     val dbReady: Boolean = false,
     val dbError: String? = null
-)
+) {
+    val hasExact: Boolean get() = exactResults.isNotEmpty()
+    val hasNoResults: Boolean
+        get() = exactResults.isEmpty() && fuzzyResults.isEmpty() && !isFuzzyLoading
+}
 
 sealed class SearchIntent {
     data class QueryChanged(val query: String) : SearchIntent()
@@ -59,7 +67,13 @@ class SearchViewModel @Inject constructor(
                 _state.update { it.copy(dbReady = true) }
             } catch (e: Exception) {
                 _state.update { it.copy(dbError = e.message ?: "Ошибка базы данных") }
+                return@launch
             }
+            // индекс примерного поиска строится заметное время — греем его сразу, чтобы
+            // первый же запрос отдал «похожие слова» без паузы. Сбой тут поиск не ломает.
+            try {
+                repository.warmUpFuzzyIndex()
+            } catch (_: Exception) { }
         }
     }
 
@@ -72,13 +86,8 @@ class SearchViewModel @Inject constructor(
     }
 
     private fun onQueryChanged(query: String) {
-        val direction = if (!userFixedDirection) {
-            autoDetectDirection(query)
-        } else {
-            _state.value.direction
-        }
-        _state.update { it.copy(query = query, direction = direction) }
-        scheduleSearch(query, direction)
+         _state.update { it.copy(query = query) }
+        scheduleSearch(query, _state.value.direction)
     }
 
     private fun onSwapDirection() {
@@ -96,45 +105,49 @@ class SearchViewModel @Inject constructor(
 
     private fun onClearQuery() {
         searchJob?.cancel()
-        _state.update {
-            it.copy(
-                query = "", results = emptyList(),
-                hasNoResults = false, isFuzzyResults = false, isLoading = false
-            )
-        }
+        _state.update { it.copy(query = "").cleared() }
     }
 
+    private fun SearchState.cleared() = copy(
+        exactResults = emptyList(),
+        fuzzyResults = emptyList(),
+        isLoading = false,
+        isFuzzyLoading = false
+    )
+
+    /**
+     * Точный и примерный поиск идут всегда — двумя шагами. Точные совпадения показываем
+     * сразу, примерные догружаются следом (первый прогон ещё строит индекс скелетов) и
+     * попадают в отдельный блок под точными.
+     */
     private fun scheduleSearch(query: String, direction: SearchDirection) {
         searchJob?.cancel()
         if (query.isBlank()) {
-            _state.update {
-                it.copy(results = emptyList(), hasNoResults = false, isFuzzyResults = false, isLoading = false)
-            }
+            _state.update { it.cleared() }
             return
         }
         searchJob = viewModelScope.launch {
             delay(250) // debounce
             if (!_state.value.dbReady) return@launch
-            _state.update { it.copy(isLoading = true, isFuzzyResults = false) }
-            val hits = when (direction) {
-                SearchDirection.CE_TO_RU -> repository.searchChechen(query)
-                SearchDirection.RU_TO_CE -> repository.searchRussian(query)
-            }
-            if (hits.isNotEmpty()) {
-                val enriched = repository.enrichHits(hits)
-                _state.update {
-                    it.copy(isLoading = false, results = enriched, hasNoResults = enriched.isEmpty(), isFuzzyResults = false)
+            _state.update { it.copy(isLoading = true, isFuzzyLoading = true, fuzzyResults = emptyList()) }
+
+            val exact = repository.enrichHits(
+                when (direction) {
+                    SearchDirection.CE_TO_RU -> repository.searchChechen(query)
+                    SearchDirection.RU_TO_CE -> repository.searchRussian(query)
                 }
-            } else if (direction == SearchDirection.CE_TO_RU) {
-                val fuzzy = repository.enrichHits(repository.searchFuzzy(query))
-                _state.update {
-                    it.copy(isLoading = false, results = fuzzy, hasNoResults = fuzzy.isEmpty(), isFuzzyResults = fuzzy.isNotEmpty())
+            )
+            ensureActive()
+            _state.update { it.copy(isLoading = false, exactResults = exact) }
+
+            val fuzzy = repository.enrichHits(
+                when (direction) {
+                    SearchDirection.CE_TO_RU -> repository.searchChechenFuzzy(query, exact.mapTo(HashSet()) { it.id })
+                    SearchDirection.RU_TO_CE -> repository.searchRussianFuzzy(query, exact.mapTo(HashSet()) { it.id })
                 }
-            } else {
-                _state.update {
-                    it.copy(isLoading = false, results = emptyList(), hasNoResults = true, isFuzzyResults = false)
-                }
-            }
+            )
+            ensureActive()
+            _state.update { it.copy(fuzzyResults = fuzzy, isFuzzyLoading = false) }
         }
     }
 
