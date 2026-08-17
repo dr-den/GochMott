@@ -38,6 +38,10 @@ android {
         compose = true
         buildConfig = true
     }
+
+    ksp {
+        arg("room.schemaLocation", "$projectDir/schemas")
+    }
 }
 
 dependencies {
@@ -72,6 +76,10 @@ dependencies {
 
     // Coroutines
     implementation(libs.coroutines.android)
+
+    // Room
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
