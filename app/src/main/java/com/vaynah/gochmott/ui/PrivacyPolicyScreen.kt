@@ -21,18 +21,23 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vaynah.gochmott.R
+import com.vaynah.gochmott.repository.AppInfoRepository
+import com.vaynah.gochmott.viewmodel.PrivacyIntent
+import com.vaynah.gochmott.viewmodel.PrivacyPolicyViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PrivacyPolicyScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
+fun PrivacyPolicyScreen(viewModel: PrivacyPolicyViewModel = hiltViewModel(), onBack: () -> Unit) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -123,13 +128,13 @@ fun PrivacyPolicyScreen(onBack: () -> Unit) {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = FEEDBACK_EMAIL,
+                text = state.feedbackEmail,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.primary,
                 textDecoration = TextDecoration.Underline,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { sendFeedbackEmail(context) }
+                    .clickable { viewModel.onIntent(PrivacyIntent.SendFeedbackEmail) }
                     .padding(vertical = 4.dp)
             )
 

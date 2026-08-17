@@ -1,9 +1,5 @@
 package com.vaynah.gochmott.ui
 
-import android.content.ActivityNotFoundException
-import android.content.Context
-import android.content.Intent
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -24,24 +20,23 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import com.vaynah.gochmott.BuildConfig
 import com.vaynah.gochmott.R
-import androidx.core.net.toUri
 import com.vaynah.gochmott.capitalizeFirst
-import java.util.Locale
+import androidx.compose.runtime.getValue
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.vaynah.gochmott.viewmodel.AboutIntent
+import com.vaynah.gochmott.viewmodel.AboutViewModel
 
-
-const val FEEDBACK_EMAIL = "gochmottapp@gmail.com"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AboutScreen(onBack: () -> Unit, onOpenPrivacyPolicy: () -> Unit) {
-    val context = LocalContext.current
+fun AboutScreen(viewModel: AboutViewModel = hiltViewModel(), onBack: () -> Unit, onOpenPrivacyPolicy: () -> Unit) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -87,15 +82,18 @@ fun AboutScreen(onBack: () -> Unit, onOpenPrivacyPolicy: () -> Unit) {
             Spacer(Modifier.height(20.dp))
 
             Text(
-                text = stringResource(R.string.version_text),
+                text = stringResource(R.string.app_version_text) + ": ${state.appVersion} (${state.buildNumber})",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
             Spacer(Modifier.height(2.dp))
             Text(
-                text = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-                style = MaterialTheme.typography.bodyLarge
+                text = stringResource(R.string.dict_ver, state.dictVersion),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
 
             Spacer(Modifier.height(20.dp))
 
@@ -106,13 +104,13 @@ fun AboutScreen(onBack: () -> Unit, onOpenPrivacyPolicy: () -> Unit) {
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = FEEDBACK_EMAIL,
+                text = state.feedbackEmail,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.primary,
                 textDecoration = TextDecoration.Underline,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { sendFeedbackEmail(context) }
+                    .clickable { viewModel.onIntent(AboutIntent.SendFeedbackEmail) }
                     .padding(vertical = 4.dp)
             )
             Spacer(Modifier.height(6.dp))
@@ -136,23 +134,5 @@ fun AboutScreen(onBack: () -> Unit, onOpenPrivacyPolicy: () -> Unit) {
                     .padding(vertical = 8.dp)
             )
         }
-    }
-}
-
-
-
-internal fun sendFeedbackEmail(context: Context) {
-
-    val intent = Intent(Intent.ACTION_SENDTO).apply {
-        data = "mailto:$FEEDBACK_EMAIL".toUri()
-        putExtra(
-            Intent.EXTRA_SUBJECT,
-            "${context.getString(R.string.app_name)} ${BuildConfig.VERSION_NAME}:  ${context.getString(R.string.feedback)}"
-        )
-    }
-    try {
-        context.startActivity(intent)
-    } catch (_: ActivityNotFoundException) {
-        Toast.makeText(context, context.getString(R.string.email_client_not_found), Toast.LENGTH_SHORT).show()
     }
 }

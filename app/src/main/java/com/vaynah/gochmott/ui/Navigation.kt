@@ -12,6 +12,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.vaynah.gochmott.viewmodel.AboutViewModel
+import com.vaynah.gochmott.viewmodel.PrivacyPolicyViewModel
 import com.vaynah.gochmott.viewmodel.SearchViewModel
 import kotlinx.coroutines.launch
 
@@ -75,14 +77,18 @@ fun GochMottNavGraph() {
         }
 
         composable(Screen.About.route) {
+            val viewModel: AboutViewModel = hiltViewModel()
             AboutScreen(
+                viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onOpenPrivacyPolicy = { navController.navigate(Screen.PrivacyPolicy.route) }
             )
         }
 
         composable(Screen.PrivacyPolicy.route) {
-            PrivacyPolicyScreen(onBack = { navController.popBackStack() })
+            val viewModel: PrivacyPolicyViewModel = hiltViewModel()
+
+            PrivacyPolicyScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
         }
 
         composable(

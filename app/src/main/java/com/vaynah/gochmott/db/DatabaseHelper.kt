@@ -4,6 +4,8 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.AtomicMoveNotSupportedException
@@ -58,17 +60,22 @@ class DatabaseHelper @Inject constructor(
         }
     }
 
+    private val _dbVersion  = MutableStateFlow(-1)
+    val dbVersion  = _dbVersion.asStateFlow()
+
     private fun openDatabase(): SQLiteDatabase {
         val dbFile = context.getDatabasePath(DB_NAME)
 
-        val localVersion = if (dbFile.exists()) readUserVersion(dbFile) else null
+        val localVersion = fetchSchemaVersion(dbFile)
         if (localVersion != EXPECTED_DB_VERSION) {
             Log.i(TAG, "$DB_NAME: версия копии $localVersion, нужна $EXPECTED_DB_VERSION — ставим из assets")
             installFromAssets(dbFile)
         }
-
+        _dbVersion.value = fetchSchemaVersion(dbFile)
         return SQLiteDatabase.openDatabase(dbFile.absolutePath, null, OPEN_FLAGS)
     }
+
+    private fun fetchSchemaVersion(dbFile: File): Int = if (dbFile.exists()) readUserVersion(dbFile) ?: -1 else -1
 
     /**
      * `PRAGMA user_version` локальной копии. `null` — файл не открылся или не читается
