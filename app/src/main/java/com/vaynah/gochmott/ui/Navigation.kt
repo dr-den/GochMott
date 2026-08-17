@@ -1,19 +1,23 @@
 package com.vaynah.gochmott.ui
 
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.vaynah.gochmott.viewmodel.SearchViewModel
+import kotlinx.coroutines.launch
 
 sealed class Screen(val route: String) {
     object Search : Screen("search")
+    object About : Screen("about")
     object Detail : Screen("detail/{lemmaId}") {
         fun createRoute(lemmaId: Long) = "detail/$lemmaId"
         const val ARG = "lemmaId"
@@ -40,12 +44,33 @@ fun GochMottNavGraph() {
                 }
             }
 
-            SearchScreen(
-                viewModel = searchViewModel,
-                onNavigateToDetail = { lemmaId ->
-                    navController.navigate(Screen.Detail.createRoute(lemmaId))
+
+            val drawerState = rememberDrawerState(DrawerValue.Closed)
+            val scope = rememberCoroutineScope()
+
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                drawerContent = {
+                    AppDrawerContent(
+                        onAboutClick = {
+                            scope.launch { drawerState.close() }
+                            navController.navigate(Screen.About.route)
+                        }
+                    )
                 }
-            )
+            ) {
+                SearchScreen(
+                    viewModel = searchViewModel,
+                    onNavigateToDetail = { lemmaId ->
+                        navController.navigate(Screen.Detail.createRoute(lemmaId))
+                    },
+                    onOpenDrawer = { scope.launch { drawerState.open() } }
+                )
+            }
+        }
+
+        composable(Screen.About.route) {
+            AboutScreen(onBack = { navController.popBackStack() })
         }
 
         composable(

@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
@@ -43,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.vaynah.gochmott.R
 import com.vaynah.gochmott.model.EntryDetail
 import com.vaynah.gochmott.model.Example
 import com.vaynah.gochmott.model.Form
@@ -80,12 +82,14 @@ fun DetailScreen(
                             fontWeight = FontWeight.Bold
                         )
                     } else {
-                        Text("Статья")
+                        Text(stringResource(R.string.article))
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(
+                            R.string.back
+                        ))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -180,9 +184,9 @@ private fun DetailContent(
                     val sg = lemma.classes.filter { it.number == "sg" }.map { it.marker }
                     val pl = lemma.classes.filter { it.number == "pl" }.map { it.marker }
                     val classStr = buildString {
-                        if (sg.isNotEmpty()) append("ед[${sg.joinToString(",")}]")
+                        if (sg.isNotEmpty()) append(stringResource(R.string.sg_forms, sg.joinToString(",")))
                         if (sg.isNotEmpty() && pl.isNotEmpty()) append("  ")
-                        if (pl.isNotEmpty()) append("мн[${pl.joinToString(",")}]")
+                        if (pl.isNotEmpty()) append(stringResource(R.string.pl_forms, pl.joinToString(",")))
                     }
                     Text(
                         text = classStr,
@@ -204,7 +208,7 @@ private fun DetailContent(
         // Senses
         if (detail.senses.isNotEmpty()) {
             item {
-                SectionLabel("Значения")
+                SectionLabel(stringResource(R.string.meanings))
             }
             items(detail.senses) { sense ->
                 SenseRow(sense)
@@ -214,7 +218,7 @@ private fun DetailContent(
         // Word forms table
         if (detail.forms.isNotEmpty()) {
             item {
-                SectionLabel("Формы слова")
+                SectionLabel(stringResource(R.string.word_forms))
                 Spacer(Modifier.height(4.dp))
                 FormsTable(detail.forms)
             }
@@ -225,18 +229,18 @@ private fun DetailContent(
         val idioms = detail.examples.filter { it.kind == "idiom" || it.kind == "proverb" || it.kind == "saying" }
 
         if (examples.isNotEmpty()) {
-            item { SectionLabel("Примеры") }
+            item { SectionLabel(stringResource(R.string.examples)) }
             items(examples) { ex -> ExampleRow(ex) }
         }
 
         if (idioms.isNotEmpty()) {
-            item { SectionLabel("◊ Идиомы и пословицы") }
+            item { SectionLabel("◊ " + stringResource(R.string.idioms_and_proverbs)) }
             items(idioms) { ex -> ExampleRow(ex) }
         }
 
         // Cross-references
         if (detail.refs.isNotEmpty()) {
-            item { SectionLabel("Ссылки") }
+            item { SectionLabel(stringResource(R.string.refs)) }
             items(detail.refs) { ref ->
                 RefRow(
                     ref = ref,

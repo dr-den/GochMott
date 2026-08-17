@@ -1,4 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ГочМотт</string>
+    <string name="feedback">обратная связь</string>
+    <string name="email_client_not_found">Почтовое приложение не найдено</string>
+    <string name="version_text">Версия</string>
+    <string name="found_error_q">Нашли ошибку в статье или в переводе — напишите нам.</string>
+    <string name="ch_ru_dict">Чеченско-русский словарь</string>
+    <string name="about_app">О приложении</string>
+    <string name="article">Статья</string>
+    <string name="back">Назад</string>
+    <string name="sg_forms">ед[%1$s]</string>
+    <string name="pl_forms">мн[%1$s]</string>
+    <string name="meanings">Значения</string>
+    <string name="word_forms">Формы слова</string>
+    <string name="examples">Примеры</string>
+    <string name="idioms_and_proverbs">Идиомы и пословицы</string>
+    <string name="refs">Ссылки</string>
 </resources>
