@@ -40,10 +40,14 @@ jobs:
             -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: app/build/outputs/apk/release/*.apk
-          generate_release_notes: true
-          prerelease: ${{ startsWith(github.ref, 'refs/tags/b') }}
-          make_latest: ${{ startsWith(github.ref, 'refs/tags/v') }}
-          fail_on_unmatched_files: true
+        env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+            # Проверяем, начинается ли тег с 'b' (например, b6)
+            if [[ "${{ github.ref }}" == refs/tags/b* ]]; then
+              # Создаем Pre-release
+              gh release create ${{ github.ref_name }} app/build/outputs/apk/release/*.apk --generate-notes --prerelease
+            else
+              # Создаем обычный стабильный релиз (Latest)
+              gh release create ${{ github.ref_name }} app/build/outputs/apk/release/*.apk --generate-notes
+            fi
