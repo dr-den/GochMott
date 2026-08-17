@@ -45,5 +45,5 @@ jobs:
           files: app/build/outputs/apk/release/*.apk
           generate_release_notes: true
           prerelease: ${{ startsWith(github.ref, 'refs/tags/build') }}
+          draft: false
           fail_on_unmatched_files: true
-          make_latest: ${{ startsWith(github.ref, 'refs/tags/v') }}
