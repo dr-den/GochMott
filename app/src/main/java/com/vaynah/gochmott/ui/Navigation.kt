@@ -12,6 +12,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.vaynah.gochmott.model.SearchDirection
 import com.vaynah.gochmott.viewmodel.AboutViewModel
 import com.vaynah.gochmott.viewmodel.PrivacyPolicyViewModel
 import com.vaynah.gochmott.viewmodel.SearchViewModel
@@ -27,27 +28,28 @@ sealed class Screen(val route: String) {
     }
 }
 
+
+sealed class DictDeepLink {
+    data class Search(val query: String, val direction: SearchDirection? = null) : DictDeepLink()
+
+    data class Entry(val lemmaId: Long) : DictDeepLink()
+}
+
 @Composable
-fun GochMottNavGraph() {
+fun GochMottNavGraph(
+    deepLink: DictDeepLink? = null,
+    onDeepLinkHandled: () -> Unit = {}
+) {
     val navController = rememberNavController()
+
+
+    val searchViewModel: SearchViewModel = hiltViewModel()
 
     NavHost(
         navController = navController,
         startDestination = Screen.Search.route
     ) {
-        composable(Screen.Search.route) { backStackEntry ->
-            val searchViewModel: SearchViewModel = hiltViewModel()
-
-            // Pick up query passed back from DetailScreen via savedStateHandle
-            val savedQuery = backStackEntry.savedStateHandle.get<String>("searchQuery")
-            LaunchedEffect(savedQuery) {
-                if (!savedQuery.isNullOrBlank()) {
-                    searchViewModel.searchFor(savedQuery)
-                    backStackEntry.savedStateHandle.remove<String>("searchQuery")
-                }
-            }
-
-
+        composable(Screen.Search.route) {
             val drawerState = rememberDrawerState(DrawerValue.Closed)
             val scope = rememberCoroutineScope()
 
@@ -104,12 +106,28 @@ fun GochMottNavGraph() {
                     navController.navigate(Screen.Detail.createRoute(id))
                 },
                 onSearchQuery = { query ->
-                    navController.previousBackStackEntry
-                        ?.savedStateHandle
-                        ?.set("searchQuery", query)
-                    navController.popBackStack()
+                    searchViewModel.searchFor(query)
+                    navController.popBackStack(Screen.Search.route, inclusive = false)
                 }
             )
         }
+    }
+
+
+    LaunchedEffect(deepLink) {
+        when (deepLink) {
+            null -> return@LaunchedEffect
+
+            is DictDeepLink.Search -> {
+                searchViewModel.searchFor(deepLink.query, deepLink.direction)
+                navController.popBackStack(Screen.Search.route, inclusive = false)
+            }
+
+            is DictDeepLink.Entry -> {
+                navController.popBackStack(Screen.Search.route, inclusive = false)
+                navController.navigate(Screen.Detail.createRoute(deepLink.lemmaId))
+            }
+        }
+        onDeepLinkHandled()
     }
 }

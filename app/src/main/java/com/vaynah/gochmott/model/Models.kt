@@ -56,4 +56,8 @@ data class EntryDetail(
     val refs: List<Ref>
 )
 
-enum class SearchDirection { CE_TO_RU, RU_TO_CE }
+enum class SearchDirection {
+    CE_TO_RU, RU_TO_CE;
+
+    fun opposite(): SearchDirection = if (this == CE_TO_RU) RU_TO_CE else CE_TO_RU
+}

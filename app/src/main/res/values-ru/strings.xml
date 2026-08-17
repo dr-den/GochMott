@@ -46,8 +46,16 @@
     <string name="recent_searches">Недавние запросы</string>
     <string name="clear_history">Очистить</string>
     <string name="remove_from_history">Убрать из истории</string>
+    <string name="close">Закрыть</string>
 
-    <!-- Политика конфиденциальности -->
+    <string name="quick_translate_label">Гочдан (GochMott)</string>
+    <string name="quick_first_word_only">Переведено первое слово из выделенного</string>
+    <string name="quick_no_word">В выделенном тексте нет слова</string>
+    <string name="quick_open_in_app">Открыть в приложении</string>
+    <string name="quick_more_entries">Ещё статей: %1$d</string>
+    <string name="lang_chechen">Чеченский</string>
+    <string name="lang_russian">Русский</string>
+
     <string name="privacy_policy">Политика конфиденциальности</string>
     <string name="privacy_last_updated">Последнее обновление: 17 августа 2026 г.</string>
     <string name="privacy_intro">ГочМотт — офлайн-словарь. Приложение работает полностью на вашем устройстве и никуда не передаёт ваши данные.</string>

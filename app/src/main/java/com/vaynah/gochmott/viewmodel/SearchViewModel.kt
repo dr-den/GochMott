@@ -7,7 +7,6 @@ import com.vaynah.gochmott.model.LemmaHit
 import com.vaynah.gochmott.model.SearchDirection
 import com.vaynah.gochmott.repository.DictRepository
 import com.vaynah.gochmott.repository.SearchHistoryRepository
-import com.vaynah.gochmott.search.ChechenNormalizer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -147,14 +146,14 @@ class SearchViewModel @Inject constructor(
 
     private fun onSwapDirection() {
         userFixedDirection = true
-        val newDir = if (_state.value.direction == SearchDirection.CE_TO_RU)
-            SearchDirection.RU_TO_CE else SearchDirection.CE_TO_RU
+        val newDir = _state.value.direction.opposite()
         _state.update { it.copy(direction = newDir) }
         scheduleSearch(_state.value.query, newDir)
     }
 
-    fun searchFor(query: String) {
+    fun searchFor(query: String, direction: SearchDirection? = null) {
         userFixedDirection = false
+        if (direction != null) _state.update { it.copy(direction = direction) }
         onQueryChanged(query)
     }
 

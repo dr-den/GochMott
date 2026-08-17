@@ -404,7 +404,7 @@ private fun FuzzyHeader(query: String, hasExact: Boolean) {
 }
 
 @Composable
-private fun NotFoundText(query: String) {
+internal fun NotFoundText(query: String) {
     Text(
         text = buildAnnotatedString {
             append(stringResource(R.string.words).capitalizeFirst())

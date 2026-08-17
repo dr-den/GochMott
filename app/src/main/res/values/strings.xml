@@ -45,6 +45,15 @@
     <string name="recent_searches">Recent searches</string>
     <string name="clear_history">Clear</string>
     <string name="remove_from_history">Remove from history</string>
+    <string name="close">Close</string>
+
+    <string name="quick_translate_label">Gochdan (GochMott)</string>
+    <string name="quick_first_word_only">Only the first word of the selection is translated</string>
+    <string name="quick_no_word">There is no word in the selected text</string>
+    <string name="quick_open_in_app">Open in app</string>
+    <string name="quick_more_entries">More entries: %1$d</string>
+    <string name="lang_chechen">Chechen</string>
+    <string name="lang_russian">Russian</string>
 
     <!-- Privacy policy -->
     <string name="privacy_policy">Privacy Policy</string>
