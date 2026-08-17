@@ -43,4 +43,23 @@
     <string name="matsiev">Мациева</string>
     <string name="no_results">Ничего не найдено</string>
     <string name="searching_similar_words">Ищем похожие слова…</string>
+
+    <!-- Политика конфиденциальности -->
+    <string name="privacy_policy">Политика конфиденциальности</string>
+    <string name="privacy_last_updated">Последнее обновление: 17 августа 2026 г.</string>
+    <string name="privacy_intro">ГочМотт — офлайн-словарь. Приложение работает полностью на вашем устройстве и никуда не передаёт ваши данные.</string>
+    <string name="privacy_data_title">Какие данные мы собираем</string>
+    <string name="privacy_data_body">Никаких. Приложение не собирает, не хранит и не передаёт персональные данные. Поисковые запросы обрабатываются только на вашем устройстве и никуда не отправляются. В приложении нет учётных записей и регистрации.</string>
+    <string name="privacy_permissions_title">Разрешения и доступ в интернет</string>
+    <string name="privacy_permissions_body">Приложение не запрашивает разрешений Android и не имеет разрешения на доступ в интернет. Весь словарь входит в состав приложения и работает без сети.</string>
+    <string name="privacy_third_party_title">Сторонние сервисы</string>
+    <string name="privacy_third_party_body">В приложении нет рекламы, аналитики и сторонних трекеров.</string>
+    <string name="privacy_feedback_title">Обратная связь</string>
+    <string name="privacy_feedback_body">Если вы напишете нам на указанный ниже адрес, мы получим ваш адрес электронной почты и текст письма. Мы используем их только для ответа вам и для исправления найденных ошибок в словаре и не передаём третьим лицам.</string>
+    <string name="privacy_children_title">Дети</string>
+    <string name="privacy_children_body">Приложение подходит для любого возраста и не собирает данные ни о ком, включая детей.</string>
+    <string name="privacy_changes_title">Изменения политики</string>
+    <string name="privacy_changes_body">Если политика изменится, обновлённый текст будет опубликован в новой версии приложения вместе с новой датой обновления.</string>
+    <string name="privacy_contact_title">Контакты</string>
+    <string name="privacy_contact_body">Вопросы по этой политике:</string>
 </resources>

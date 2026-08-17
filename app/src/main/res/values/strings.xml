@@ -42,4 +42,23 @@
     <string name="matsiev">Matsiev</string>
     <string name="no_results">No results found</string>
     <string name="searching_similar_words">Searching for similar words…</string>
+
+    <!-- Privacy policy -->
+    <string name="privacy_policy">Privacy Policy</string>
+    <string name="privacy_last_updated">Last updated: 17 August 2026</string>
+    <string name="privacy_intro">GochMott is an offline dictionary. The app works entirely on your device and does not send your data anywhere.</string>
+    <string name="privacy_data_title">Data we collect</string>
+    <string name="privacy_data_body">None. The app does not collect, store or transmit personal data. Search queries are processed only on your device and are not sent anywhere. The app has no user accounts and no registration.</string>
+    <string name="privacy_permissions_title">Permissions and internet access</string>
+    <string name="privacy_permissions_body">The app requests no Android permissions and has no internet access permission. The whole dictionary is bundled with the app and works without a network connection.</string>
+    <string name="privacy_third_party_title">Third parties</string>
+    <string name="privacy_third_party_body">The app contains no advertising, no analytics and no third-party trackers.</string>
+    <string name="privacy_feedback_title">Feedback</string>
+    <string name="privacy_feedback_body">If you write to us at the address below, we receive your email address and the contents of your message. We use them only to answer you and to fix reported dictionary errors, and we do not pass them on to third parties.</string>
+    <string name="privacy_children_title">Children</string>
+    <string name="privacy_children_body">The app is suitable for all ages and collects no data from anyone, including children.</string>
+    <string name="privacy_changes_title">Changes to this policy</string>
+    <string name="privacy_changes_body">If this policy changes, the updated text will be published in a new version of the app together with a new update date.</string>
+    <string name="privacy_contact_title">Contact</string>
+    <string name="privacy_contact_body">Questions about this policy:</string>
 </resources>

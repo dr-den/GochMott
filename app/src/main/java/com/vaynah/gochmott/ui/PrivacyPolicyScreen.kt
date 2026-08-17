@@ -1,9 +1,5 @@
 package com.vaynah.gochmott.ui
 
-import android.content.ActivityNotFoundException
-import android.content.Context
-import android.content.Intent
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -11,6 +7,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -29,24 +27,19 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import com.vaynah.gochmott.BuildConfig
 import com.vaynah.gochmott.R
-import androidx.core.net.toUri
-import com.vaynah.gochmott.capitalizeFirst
-import java.util.Locale
-
-
-const val FEEDBACK_EMAIL = "gochmottapp@gmail.com"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AboutScreen(onBack: () -> Unit, onOpenPrivacyPolicy: () -> Unit) {
+fun PrivacyPolicyScreen(onBack: () -> Unit) {
     val context = LocalContext.current
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.about_app), fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(stringResource(R.string.privacy_policy), fontWeight = FontWeight.Bold)
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -67,6 +60,7 @@ fun AboutScreen(onBack: () -> Unit, onOpenPrivacyPolicy: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 16.dp)
         ) {
             Text(
@@ -77,8 +71,8 @@ fun AboutScreen(onBack: () -> Unit, onOpenPrivacyPolicy: () -> Unit) {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = stringResource(R.string.ch_ru_dict),
-                style = MaterialTheme.typography.bodyMedium,
+                text = stringResource(R.string.privacy_last_updated),
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
@@ -87,24 +81,47 @@ fun AboutScreen(onBack: () -> Unit, onOpenPrivacyPolicy: () -> Unit) {
             Spacer(Modifier.height(20.dp))
 
             Text(
-                text = stringResource(R.string.version_text),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                text = stringResource(R.string.privacy_intro),
                 style = MaterialTheme.typography.bodyLarge
             )
 
-            Spacer(Modifier.height(20.dp))
+            PolicySection(
+                title = stringResource(R.string.privacy_data_title),
+                body = stringResource(R.string.privacy_data_body)
+            )
+            PolicySection(
+                title = stringResource(R.string.privacy_permissions_title),
+                body = stringResource(R.string.privacy_permissions_body)
+            )
+            PolicySection(
+                title = stringResource(R.string.privacy_third_party_title),
+                body = stringResource(R.string.privacy_third_party_body)
+            )
+            PolicySection(
+                title = stringResource(R.string.privacy_feedback_title),
+                body = stringResource(R.string.privacy_feedback_body)
+            )
+            PolicySection(
+                title = stringResource(R.string.privacy_children_title),
+                body = stringResource(R.string.privacy_children_body)
+            )
+            PolicySection(
+                title = stringResource(R.string.privacy_changes_title),
+                body = stringResource(R.string.privacy_changes_body)
+            )
 
+            Spacer(Modifier.height(20.dp))
             Text(
-                text = stringResource(R.string.feedback).capitalizeFirst(),
+                text = stringResource(R.string.privacy_contact_title),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.privacy_contact_body),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(4.dp))
             Text(
                 text = FEEDBACK_EMAIL,
                 style = MaterialTheme.typography.bodyLarge,
@@ -115,44 +132,23 @@ fun AboutScreen(onBack: () -> Unit, onOpenPrivacyPolicy: () -> Unit) {
                     .clickable { sendFeedbackEmail(context) }
                     .padding(vertical = 4.dp)
             )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = stringResource(R.string.found_error_q),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
 
-            Spacer(Modifier.height(20.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Spacer(Modifier.height(20.dp))
-
-            Text(
-                text = stringResource(R.string.privacy_policy),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onOpenPrivacyPolicy)
-                    .padding(vertical = 8.dp)
-            )
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
 
-
-
-internal fun sendFeedbackEmail(context: Context) {
-
-    val intent = Intent(Intent.ACTION_SENDTO).apply {
-        data = "mailto:$FEEDBACK_EMAIL".toUri()
-        putExtra(
-            Intent.EXTRA_SUBJECT,
-            "${context.getString(R.string.app_name)} ${BuildConfig.VERSION_NAME}:  ${context.getString(R.string.feedback)}"
-        )
-    }
-    try {
-        context.startActivity(intent)
-    } catch (_: ActivityNotFoundException) {
-        Toast.makeText(context, context.getString(R.string.email_client_not_found), Toast.LENGTH_SHORT).show()
-    }
+@Composable
+private fun PolicySection(title: String, body: String) {
+    Spacer(Modifier.height(20.dp))
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Spacer(Modifier.height(4.dp))
+    Text(
+        text = body,
+        style = MaterialTheme.typography.bodyMedium
+    )
 }

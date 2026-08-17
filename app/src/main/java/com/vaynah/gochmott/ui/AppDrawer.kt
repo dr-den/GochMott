@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.PrivacyTip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -20,7 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.vaynah.gochmott.R
 
 @Composable
-fun AppDrawerContent(onAboutClick: () -> Unit) {
+fun AppDrawerContent(onAboutClick: () -> Unit, onPrivacyPolicyClick: () -> Unit) {
     ModalDrawerSheet {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp)) {
             Text(
@@ -42,6 +43,14 @@ fun AppDrawerContent(onAboutClick: () -> Unit) {
             icon = { Icon(Icons.Outlined.Info, contentDescription = null) },
             selected = false,
             onClick = onAboutClick,
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+        )
+
+        NavigationDrawerItem(
+            label = { Text(stringResource(R.string.privacy_policy)) },
+            icon = { Icon(Icons.Outlined.PrivacyTip, contentDescription = null) },
+            selected = false,
+            onClick = onPrivacyPolicyClick,
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
     }

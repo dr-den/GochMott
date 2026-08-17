@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 sealed class Screen(val route: String) {
     object Search : Screen("search")
     object About : Screen("about")
+    object PrivacyPolicy : Screen("privacy_policy")
     object Detail : Screen("detail/{lemmaId}") {
         fun createRoute(lemmaId: Long) = "detail/$lemmaId"
         const val ARG = "lemmaId"
@@ -55,6 +56,10 @@ fun GochMottNavGraph() {
                         onAboutClick = {
                             scope.launch { drawerState.close() }
                             navController.navigate(Screen.About.route)
+                        },
+                        onPrivacyPolicyClick = {
+                            scope.launch { drawerState.close() }
+                            navController.navigate(Screen.PrivacyPolicy.route)
                         }
                     )
                 }
@@ -70,7 +75,14 @@ fun GochMottNavGraph() {
         }
 
         composable(Screen.About.route) {
-            AboutScreen(onBack = { navController.popBackStack() })
+            AboutScreen(
+                onBack = { navController.popBackStack() },
+                onOpenPrivacyPolicy = { navController.navigate(Screen.PrivacyPolicy.route) }
+            )
+        }
+
+        composable(Screen.PrivacyPolicy.route) {
+            PrivacyPolicyScreen(onBack = { navController.popBackStack() })
         }
 
         composable(
