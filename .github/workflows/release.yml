@@ -4,7 +4,7 @@ on:
   push:
     tags:
       - 'v*'      # Для стабильных релизов (например, v1.0.0)
-      - 'b*'     # Для тестовых сборок
+      - 'b*'      # Для тестовых сборок (например, b3)
   workflow_dispatch:
 
 jobs:
@@ -44,6 +44,6 @@ jobs:
         with:
           files: app/build/outputs/apk/release/*.apk
           generate_release_notes: true
-          prerelease: ${{ startsWith(github.ref, 'refs/tags/build') }}
-          draft: false
+          prerelease: ${{ startsWith(github.ref, 'refs/tags/b') }}
+          make_latest: ${{ startsWith(github.ref, 'refs/tags/v') }}
           fail_on_unmatched_files: true
