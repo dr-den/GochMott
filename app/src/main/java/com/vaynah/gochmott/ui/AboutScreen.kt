@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import com.vaynah.gochmott.BuildConfig
 import com.vaynah.gochmott.R
 import androidx.core.net.toUri
+import com.vaynah.gochmott.capitalizeFirst
 import java.util.Locale
 
 

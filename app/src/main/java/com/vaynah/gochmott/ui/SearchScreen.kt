@@ -25,17 +25,13 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedFilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SuggestionChip
@@ -44,22 +40,22 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.vaynah.gochmott.R
+import com.vaynah.gochmott.capitalizeFirst
 import com.vaynah.gochmott.model.LemmaHit
 import com.vaynah.gochmott.model.SearchDirection
 import com.vaynah.gochmott.viewmodel.SearchIntent
@@ -77,10 +73,13 @@ fun SearchScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("ГочМотт", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onOpenDrawer) {
-                        Icon(Icons.Default.Menu, contentDescription = "Меню")
+                        Icon(
+                            Icons.Default.Menu,
+                            contentDescription = stringResource(R.string.menu_content_description)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -110,7 +109,7 @@ fun SearchScreen(
                         if (state.direction != SearchDirection.CE_TO_RU)
                             viewModel.onIntent(SearchIntent.SwapDirection)
                     },
-                    label = { Text("ЧЕ → РУ", fontSize = 13.sp) },
+                    label = { Text(stringResource(R.string.lang_ce_to_ru), fontSize = 13.sp) },
                     colors = FilterChipDefaults.elevatedFilterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primary,
                         selectedLabelColor = MaterialTheme.colorScheme.onPrimary
@@ -120,7 +119,7 @@ fun SearchScreen(
                 IconButton(onClick = { viewModel.onIntent(SearchIntent.SwapDirection) }) {
                     Icon(
                         imageVector = Icons.Default.SwapHoriz,
-                        contentDescription = "Поменять направление",
+                        contentDescription = stringResource(R.string.swap_direction_content_description),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -131,7 +130,7 @@ fun SearchScreen(
                         if (state.direction != SearchDirection.RU_TO_CE)
                             viewModel.onIntent(SearchIntent.SwapDirection)
                     },
-                    label = { Text("РУ → ЧЕ", fontSize = 13.sp) },
+                    label = { Text(stringResource(R.string.lang_ru_to_ce), fontSize = 13.sp) },
                     colors = FilterChipDefaults.elevatedFilterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primary,
                         selectedLabelColor = MaterialTheme.colorScheme.onPrimary
@@ -149,14 +148,19 @@ fun SearchScreen(
                 placeholder = {
                     Text(
                         if (state.direction == SearchDirection.CE_TO_RU)
-                            "Чеченское слово…" else "Русское слово…"
+                            stringResource(R.string.search_hint_ce)
+                        else
+                            stringResource(R.string.search_hint_ru)
                     )
                 },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
                     if (state.query.isNotEmpty()) {
                         IconButton(onClick = { viewModel.onIntent(SearchIntent.ClearQuery) }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Очистить")
+                            Icon(
+                                Icons.Default.Clear,
+                                contentDescription = stringResource(R.string.clear_content_description)
+                            )
                         }
                     }
                 },
@@ -178,7 +182,7 @@ fun SearchScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                "Ошибка: ${state.dbError}",
+                                stringResource(R.string.error_prefix, state.dbError ?: ""),
                                 color = MaterialTheme.colorScheme.error
                             )
                         }
@@ -191,7 +195,7 @@ fun SearchScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             CircularProgressIndicator()
-                            Text("Загрузка словаря…")
+                            Text(stringResource(R.string.loading_dictionary))
                         }
                     }
 
@@ -205,16 +209,16 @@ fun SearchScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                "Введите слово для поиска",
+                                stringResource(R.string.search_hint_empty_state),
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(Modifier.height(8.dp))
                             Text(
-                                "Чеченско-русский словарь Мациева\n≈20 400 статей",
+                               stringResource(R.string.dictionary_subtitle, stringResource(R.string.matsiev), 20400) ,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
@@ -222,7 +226,7 @@ fun SearchScreen(
                     state.hasNoResults -> {
                         Box(modifier = Modifier.align(Alignment.Center)) {
                             Text(
-                                "Ничего не найдено",
+                                stringResource(R.string.no_results),
                                 style = MaterialTheme.typography.bodyLarge
                             )
                         }
@@ -241,7 +245,6 @@ fun SearchScreen(
                             }
 
                             // 2а. РУ→ЧЕ: похожие русские слова вместо статей — сначала
-                            // пользователь выбирает слово, потом видит его переводы
                             if (state.suggestions.isNotEmpty()) {
                                 item(key = "suggestions") {
                                     SuggestionsBlock(
@@ -279,7 +282,7 @@ fun SearchScreen(
                                         )
                                         Spacer(Modifier.width(8.dp))
                                         Text(
-                                            "Ищем похожие слова…",
+                                            stringResource(R.string.searching_similar_words),
                                             style = MaterialTheme.typography.labelMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -295,9 +298,7 @@ fun SearchScreen(
 }
 
 /**
- * Заголовок блока примерных совпадений. Формулировка зависит от того, нашлось ли
- * точное совпадение: без него это единственный результат и надо объяснить, почему
- * показано не то, что ввели.
+ * Заголовок блока примерных совпадений.
  */
 @Composable
 private fun FuzzyHeader(query: String, hasExact: Boolean) {
@@ -306,7 +307,7 @@ private fun FuzzyHeader(query: String, hasExact: Boolean) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(Modifier.height(10.dp))
             Text(
-                "Похожие слова",
+                stringResource(R.string.similar_words),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -321,9 +322,11 @@ private fun FuzzyHeader(query: String, hasExact: Boolean) {
 private fun NotFoundText(query: String) {
     Text(
         text = buildAnnotatedString {
-            append("Слова «")
+            append(stringResource(R.string.words).capitalizeFirst())
+            append(" «")
             withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(query.trim()) }
-            append("» в словаре нет. Может быть, вы имели в виду:")
+            append("» ")
+            append(stringResource(R.string.word_not_found))
         },
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -331,9 +334,7 @@ private fun NotFoundText(query: String) {
 }
 
 /**
- * РУ→ЧЕ: похожие русские слова. Показываем именно слова, а не сразу статьи — переводы
- * разных слов в одном списке не различить, поэтому сначала пусть пользователь выберет
- * слово, а по нажатию оно станет запросом и покажутся его переводы.
+ * РУ→ЧЕ: похожие русские слова.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -403,8 +404,8 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
                 }
                 // Flags
                 val flags = buildList {
-                    if (hit.pluraliaTantum) add("мн.")
-                    if (hit.indeclinable) add("нескл.")
+                    if (hit.pluraliaTantum) add(stringResource(R.string.pluralia_tantum))
+                    if (hit.indeclinable) add(stringResource(R.string.indeclinable))
                 }
                 if (flags.isNotEmpty()) {
                     Spacer(Modifier.width(4.dp))
@@ -422,9 +423,9 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
                 val sg = hit.classes.filter { it.number == "sg" }.map { it.marker }
                 val pl = hit.classes.filter { it.number == "pl" }.map { it.marker }
                 val classStr = buildString {
-                    if (sg.isNotEmpty()) append("ед[${sg.joinToString(",")}]")
+                    if (sg.isNotEmpty()) append(stringResource(R.string.sg_forms, sg.joinToString(",")))
                     if (sg.isNotEmpty() && pl.isNotEmpty()) append(" ")
-                    if (pl.isNotEmpty()) append("мн[${pl.joinToString(",")}]")
+                    if (pl.isNotEmpty()) append(stringResource(R.string.pl_forms, pl.joinToString(",")))
                 }
                 if (classStr.isNotEmpty()) {
                     Text(

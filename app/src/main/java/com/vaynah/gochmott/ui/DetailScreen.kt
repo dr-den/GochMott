@@ -320,7 +320,7 @@ private fun FormsTable(forms: List<Form>) {
         grouped.forEach { (number, groupForms) ->
             if (number.isNotEmpty()) {
                 Text(
-                    text = if (number == "sg") "Единственное число" else "Множественное число",
+                    text = if (number == "sg") stringResource(R.string.sg) else stringResource(R.string.pl),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -388,12 +388,12 @@ private fun RefRow(
     onSearch: (String) -> Unit
 ) {
     val relLabel = when (ref.relType) {
-        "see" -> "см."
-        "compare" -> "ср."
-        "same_as" -> "то же что"
-        "variant" -> "вариант"
-        "plural_of" -> "мн. от"
-        "aspect_pair" -> "вид. пара"
+        "see" -> stringResource(R.string.rel_type_see)
+        "compare" -> stringResource(R.string.rel_type_compare)
+        "same_as" -> stringResource(R.string.rel_type_same_as)
+        "variant" -> stringResource(R.string.rel_type_variant)
+        "plural_of" -> stringResource(R.string.rel_type_plural_of)
+        "aspect_pair" -> stringResource(R.string.rel_type_aspect_pair)
         else -> ref.relType
     }
 
