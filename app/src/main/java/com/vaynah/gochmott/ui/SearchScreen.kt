@@ -16,12 +16,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -36,12 +39,14 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -69,6 +74,12 @@ fun SearchScreen(
     onOpenDrawer: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val focusManager = LocalFocusManager.current
+
+    val openDetail: (Long) -> Unit = { lemmaId ->
+        viewModel.onIntent(SearchIntent.QuerySubmitted)
+        onNavigateToDetail(lemmaId)
+    }
 
     Scaffold(
         topBar = {
@@ -166,6 +177,12 @@ fun SearchScreen(
                 },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(
+                    onSearch = {
+                        viewModel.onIntent(SearchIntent.QuerySubmitted)
+                        focusManager.clearFocus()
+                    }
+                ),
                 shape = MaterialTheme.shapes.medium
             )
 
@@ -201,6 +218,15 @@ fun SearchScreen(
 
                     state.isLoading -> {
                         CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                    }
+
+                    state.query.isEmpty() && state.history.isNotEmpty() -> {
+                        SearchHistoryList(
+                            entries = state.history,
+                            onSelect = { viewModel.onIntent(SearchIntent.HistorySelected(it)) },
+                            onRemove = { viewModel.onIntent(SearchIntent.HistoryRemoved(it)) },
+                            onClearAll = { viewModel.onIntent(SearchIntent.ClearHistory) }
+                        )
                     }
 
                     state.query.isEmpty() -> {
@@ -240,7 +266,7 @@ fun SearchScreen(
                             // 1. Точные совпадения — всегда сверху
                             if (state.hasExact) {
                                 items(state.exactResults, key = { "exact_${it.id}" }) { hit ->
-                                    HitCard(hit = hit, onClick = { onNavigateToDetail(hit.id) })
+                                    HitCard(hit = hit, onClick = { openDetail(hit.id) })
                                 }
                             }
 
@@ -263,7 +289,7 @@ fun SearchScreen(
                                     FuzzyHeader(query = state.query, hasExact = state.hasExact)
                                 }
                                 items(state.fuzzyResults, key = { "fuzzy_${it.id}" }) { hit ->
-                                    HitCard(hit = hit, onClick = { onNavigateToDetail(hit.id) })
+                                    HitCard(hit = hit, onClick = { openDetail(hit.id) })
                                 }
                             } else if (state.suggestions.isEmpty() && state.isFuzzyLoading) {
                                 item(key = "fuzzy_loading") {
@@ -291,6 +317,65 @@ fun SearchScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchHistoryList(
+    entries: List<String>,
+    onSelect: (String) -> Unit,
+    onRemove: (String) -> Unit,
+    onClearAll: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(vertical = 8.dp)
+    ) {
+        item(key = "history_header") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.recent_searches),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onClearAll) {
+                    Text(stringResource(R.string.clear_history))
+                }
+            }
+        }
+
+        items(entries, key = { "history_$it" }) { entry ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(entry) }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.History,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = entry,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = { onRemove(entry) }) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.remove_from_history),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

@@ -6,14 +6,19 @@ import com.vaynah.gochmott.db.DatabaseHelper
 import com.vaynah.gochmott.model.LemmaHit
 import com.vaynah.gochmott.model.SearchDirection
 import com.vaynah.gochmott.repository.DictRepository
+import com.vaynah.gochmott.repository.SearchHistoryRepository
 import com.vaynah.gochmott.search.ChechenNormalizer
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -28,8 +33,8 @@ data class SearchState(
     val fuzzyResults: List<LemmaHit> = emptyList(),
     /** РУ→ЧЕ: похожие русские слова. Только когда точного слова в словаре нет. */
     val suggestions: List<String> = emptyList(),
-    /** Поиск похожих ещё идёт: рано говорить «ничего не найдено». */
     val isFuzzyLoading: Boolean = false,
+    val history: List<String> = emptyList(),
     val dbReady: Boolean = false,
     val dbError: String? = null
 ) {
@@ -41,16 +46,21 @@ data class SearchState(
 
 sealed class SearchIntent {
     data class QueryChanged(val query: String) : SearchIntent()
-    /** Пользователь выбрал одно из предложенных русских слов. */
     data class SuggestionSelected(val word: String) : SearchIntent()
     object SwapDirection : SearchIntent()
     object ClearQuery : SearchIntent()
+
+    object QuerySubmitted : SearchIntent()
+    data class HistorySelected(val query: String) : SearchIntent()
+    data class HistoryRemoved(val query: String) : SearchIntent()
+    object ClearHistory : SearchIntent()
 }
 
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     private val repository: DictRepository,
-    private val dbHelper: DatabaseHelper
+    private val dbHelper: DatabaseHelper,
+    private val historyRepository: SearchHistoryRepository
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SearchState())
@@ -61,6 +71,17 @@ class SearchViewModel @Inject constructor(
 
     init {
         initDatabase()
+        observeHistory()
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun observeHistory() {
+        viewModelScope.launch {
+            _state.map { it.direction }
+                .distinctUntilChanged()
+                .flatMapLatest { direction -> historyRepository.history(direction) }
+                .collect { entries -> _state.update { it.copy(history = entries) } }
+        }
     }
 
     private fun initDatabase() {
@@ -88,7 +109,28 @@ class SearchViewModel @Inject constructor(
             is SearchIntent.SuggestionSelected -> onSuggestionSelected(intent.word)
             is SearchIntent.SwapDirection -> onSwapDirection()
             is SearchIntent.ClearQuery -> onClearQuery()
+            is SearchIntent.QuerySubmitted -> rememberQuery(_state.value.query)
+            is SearchIntent.HistorySelected -> onHistorySelected(intent.query)
+            is SearchIntent.HistoryRemoved -> viewModelScope.launch {
+                historyRepository.remove(_state.value.direction, intent.query)
+            }
+            is SearchIntent.ClearHistory -> viewModelScope.launch {
+                historyRepository.clear(_state.value.direction)
+            }
         }
+    }
+
+    private fun rememberQuery(query: String) {
+        if (query.isBlank()) return
+        val direction = _state.value.direction
+        viewModelScope.launch { historyRepository.record(direction, query) }
+    }
+
+
+    private fun onHistorySelected(query: String) {
+        _state.update { it.copy(query = query, suggestions = emptyList()) }
+        scheduleSearch(query, _state.value.direction)
+        rememberQuery(query)
     }
 
     private fun onQueryChanged(query: String) {
@@ -96,13 +138,11 @@ class SearchViewModel @Inject constructor(
         scheduleSearch(query, _state.value.direction)
     }
 
-    /**
-     * Выбранная подсказка становится запросом — дальше это обычный поиск, поэтому
-     * пользователь видит переводы именно выбранного слова и может править его дальше.
-     */
+
     private fun onSuggestionSelected(word: String) {
         _state.update { it.copy(query = word, suggestions = emptyList()) }
         scheduleSearch(word, _state.value.direction)
+        rememberQuery(word)
     }
 
     private fun onSwapDirection() {
@@ -131,15 +171,6 @@ class SearchViewModel @Inject constructor(
         isFuzzyLoading = false
     )
 
-    /**
-     * Поиск идёт двумя шагами: точные совпадения показываем сразу, похожее догружается
-     * следом (первый прогон ещё строит индекс скелетов).
-     *
-     * Второй шаг у направлений разный. ЧЕ→РУ показывает похожие статьи всегда: чеченское
-     * написание пользователь путает и при удачном совпадении («куг» → «куьг»). РУ→ЧЕ ищет
-     * похожие СЛОВА и только если точного слова в словаре нет — когда «пол» нашёлся,
-     * подмешивать к нему статьи «поля» и «полено» нельзя.
-     */
     private fun scheduleSearch(query: String, direction: SearchDirection) {
         searchJob?.cancel()
         if (query.isBlank()) {
@@ -185,20 +216,4 @@ class SearchViewModel @Inject constructor(
         }
     }
 
-    private fun autoDetectDirection(query: String): SearchDirection {
-        if (query.isBlank()) return SearchDirection.CE_TO_RU
-        val normalized = ChechenNormalizer.normalize(query)
-        // After normalization, Chechen-specific markers remain: палочка (Ӏ), digraphs аь/оь/уь
-        if (normalized.contains('Ӏ')) return SearchDirection.CE_TO_RU
-        if (normalized.contains("аь") || normalized.contains("оь") || normalized.contains("уь"))
-            return SearchDirection.CE_TO_RU
-        // If original had Latin chars (homoglyphs), normalizer converted them → still CE
-        val hadLatin = query.any { it.code in 0x41..0x7A }
-        if (hadLatin && normalized != query.lowercase()) return SearchDirection.CE_TO_RU
-        // Pure Cyrillic without Chechen markers → Russian
-        return if (query.all { it.isLetter() && it.code > 127 || it.isWhitespace() })
-            SearchDirection.RU_TO_CE
-        else
-            SearchDirection.CE_TO_RU
-    }
 }

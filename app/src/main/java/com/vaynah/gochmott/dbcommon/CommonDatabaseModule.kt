@@ -6,6 +6,7 @@ import com.vaynah.gochmott.settingsrepo.SettingsDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
@@ -15,10 +16,10 @@ class CommonDatabaseModule {
 
     @Singleton
     @Provides
-    internal fun provideDb(context: Context): CommonDatabase {
+    fun provideDb(@ApplicationContext context: Context): CommonDatabase {
         return Room
             .databaseBuilder(context, CommonDatabase::class.java, "common.db")
-            .fallbackToDestructiveMigration()
+            .fallbackToDestructiveMigration(dropAllTables = true)
             .enableMultiInstanceInvalidation()
             .build()
     }

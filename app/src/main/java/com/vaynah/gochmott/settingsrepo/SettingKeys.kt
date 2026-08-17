@@ -2,7 +2,8 @@ package com.vaynah.gochmott.settingsrepo
 
 
 object SettingKeys {
-    val overlayHorizontalExpansion = SettingKey.Float("overlayHorizontalExpansion", 1f)
+    val searchHistoryCeToRu = SettingKey.Str("searchHistoryCeToRu", "")
+    val searchHistoryRuToCe = SettingKey.Str("searchHistoryRuToCe", "")
 }
 
 

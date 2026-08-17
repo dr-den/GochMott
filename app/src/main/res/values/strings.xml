@@ -42,6 +42,9 @@
     <string name="matsiev">Matsiev</string>
     <string name="no_results">No results found</string>
     <string name="searching_similar_words">Searching for similar words…</string>
+    <string name="recent_searches">Recent searches</string>
+    <string name="clear_history">Clear</string>
+    <string name="remove_from_history">Remove from history</string>
 
     <!-- Privacy policy -->
     <string name="privacy_policy">Privacy Policy</string>
