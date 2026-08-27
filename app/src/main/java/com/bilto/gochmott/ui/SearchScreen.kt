@@ -241,7 +241,9 @@ fun SearchScreen(
                             )
                             Spacer(Modifier.height(8.dp))
                             Text(
-                               stringResource(R.string.dictionary_subtitle, stringResource(R.string.matsiev), 20400) ,
+                               // 19 075 статей в dict.db версии 3; было 20 423 — старый разбор дробил
+                               // статьи вроде «куьгдоцу,» на лишние заголовки
+                               stringResource(R.string.dictionary_subtitle, stringResource(R.string.matsiev), 19100) ,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center
@@ -467,7 +469,7 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
-                if (hit.homographN > 1) {
+                if (hit.homographN > 0) {
                     Text(
                         text = "${hit.homographN}",
                         style = MaterialTheme.typography.labelSmall,
@@ -519,6 +521,19 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+
+            // Совпавший перевод (только для поиска рус->чеч)
+            if (hit.matchedGloss != null &&
+                hit.firstSenses.none { it.startsWith(hit.matchedGloss) }
+            ) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = hit.matchedGloss,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
 
             // First senses

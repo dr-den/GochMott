@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -47,6 +48,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bilto.gochmott.R
 import com.bilto.gochmott.model.EntryDetail
 import com.bilto.gochmott.model.Example
+import com.bilto.gochmott.model.Gloss
 import com.bilto.gochmott.model.Form
 import com.bilto.gochmott.model.Ref
 import com.bilto.gochmott.model.Sense
@@ -73,7 +75,7 @@ fun DetailScreen(
                         Text(
                             text = buildAnnotatedString {
                                 append(detail.lemma.headword)
-                                if (detail.lemma.homographN > 1) {
+                                if (detail.lemma.homographN > 0) {
                                     withStyle(SpanStyle(fontSize = 12.sp, baselineShift = androidx.compose.ui.text.style.BaselineShift.Superscript)) {
                                         append("${detail.lemma.homographN}")
                                     }
@@ -194,24 +196,44 @@ private fun DetailContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (!lemma.gramNote.isNullOrBlank()) {
+                // «объект в ед.» / «субъект во мн.» — у Мациева это отдельные
+                // пометы переходности, в БД они лежат полями obj_num / subj_num.
+                val govNotes = buildList {
+                    lemma.objNum?.let { add(if (it == "sg") "объект в ед." else "объект во мн.") }
+                    lemma.subjNum?.let { add(if (it == "sg") "субъект в ед." else "субъект во мн.") }
+                    if (lemma.isClassAgreeing) add("изменяется по классам")
+                }
+                if (govNotes.isNotEmpty()) {
                     Text(
-                        text = lemma.gramNote,
+                        text = govNotes.joinToString(", "),
                         style = MaterialTheme.typography.bodySmall,
                         fontStyle = FontStyle.Italic,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                if (lemma.labels.isNotEmpty()) {
+                    Text(
+                        text = lemma.labels.joinToString(" "),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontStyle = FontStyle.Italic,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
             }
         }
 
-        // Senses
+        // Значения. Примеры теперь висят на значении, а не на статье, и
+        // показываются прямо под своим переводом — как в книге.
         if (detail.senses.isNotEmpty()) {
             item {
                 SectionLabel(stringResource(R.string.meanings))
             }
-            items(detail.senses) { sense ->
-                SenseRow(sense)
+            itemsIndexed(detail.senses) { i, sense ->
+                val previous = detail.senses.getOrNull(i - 1)
+                SenseBlock(
+                    sense = sense,
+                    startsBlock = sense.blockN != null && sense.blockN != previous?.blockN
+                )
             }
         }
 
@@ -224,18 +246,10 @@ private fun DetailContent(
             }
         }
 
-        // Examples and idioms
-        val examples = detail.examples.filter { it.kind == "example" || it.kind == "collocation" }
-        val idioms = detail.examples.filter { it.kind == "idiom" || it.kind == "proverb" || it.kind == "saying" }
-
-        if (examples.isNotEmpty()) {
-            item { SectionLabel(stringResource(R.string.examples)) }
-            items(examples) { ex -> ExampleRow(ex) }
-        }
-
-        if (idioms.isNotEmpty()) {
+        // Идиомы за ромбом «◊» относятся к статье целиком, а не к значению.
+        if (detail.idioms.isNotEmpty()) {
             item { SectionLabel("◊ " + stringResource(R.string.idioms_and_proverbs)) }
-            items(idioms) { ex -> ExampleRow(ex) }
+            items(detail.idioms) { ex -> ExampleRow(ex) }
         }
 
         // Cross-references
@@ -273,29 +287,68 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
-private fun SenseRow(sense: Sense) {
-    Row(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = "${sense.senseNo}.",
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.primary,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.width(24.dp)
-        )
-        Column {
+private fun SenseBlock(sense: Sense, startsBlock: Boolean) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Блок `1.` / `2.` — это части речи внутри одной статьи
+        // (хе̃наза: 1. прил. преждевременный, 2. нареч. преждевременно).
+        if (startsBlock) {
             Text(
-                text = sense.glossRu,
-                style = MaterialTheme.typography.bodyMedium
+                text = listOfNotNull(sense.blockN?.let { "$it." }, sense.pos)
+                    .joinToString(" "),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                fontStyle = FontStyle.Italic,
+                color = MaterialTheme.colorScheme.secondary
             )
-            if (!sense.domain.isNullOrBlank()) {
+        }
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = sense.senseNo?.let { "$it." }.orEmpty(),
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.width(24.dp)
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (sense.labels.isNotEmpty()) {
+                    Text(
+                        text = sense.labels.joinToString(" "),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontStyle = FontStyle.Italic,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
                 Text(
-                    text = sense.domain,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontStyle = FontStyle.Italic,
-                    color = MaterialTheme.colorScheme.secondary
+                    text = glossesText(sense.glosses),
+                    style = MaterialTheme.typography.bodyMedium
                 )
+                sense.examples.forEach { ExampleRow(it) }
             }
         }
+    }
+}
+
+/**
+ * Переводы одного значения одной строкой.
+ *
+ * Разделитель берётся из книги: `,` между синонимами, `;` перед более далёким
+ * переводом. Уточнение (`кисть` у «рука́») и управление (`чем-л.`) идут курсивом,
+ * чтобы их не читали как часть перевода.
+ */
+@Composable
+private fun glossesText(glosses: List<Gloss>) = buildAnnotatedString {
+    val aside = SpanStyle(
+        fontStyle = FontStyle.Italic,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    glosses.forEachIndexed { i, gloss ->
+        if (i > 0) append((gloss.sep ?: ",") + " ")
+        if (gloss.labels.isNotEmpty()) {
+            withStyle(aside) { append(gloss.labels.joinToString(" ") + " ") }
+        }
+        append(gloss.ru)
+        gloss.gov?.let { withStyle(aside) { append(" $it") } }
+        gloss.note?.let { withStyle(aside) { append(" ($it)") } }
     }
 }
 
@@ -334,7 +387,8 @@ private fun FormsTable(forms: List<Form>) {
                 ) {
                     val label = when {
                         form.tam != null -> form.tam
-                        form.caseAbbr != null -> "${form.caseAbbr}."
+                        // abbr_ru приходит уже с точкой («им.», «род.») — как в книге
+                        form.caseAbbr != null -> form.caseAbbr
                         else -> "—"
                     }
                     Text(
@@ -366,16 +420,44 @@ private fun ExampleRow(example: Example) {
             .padding(8.dp)
     ) {
         Text(
-            text = example.ceText,
+            text = buildAnnotatedString {
+                append(example.ceText)
+                // «посл.» / «погов.» — это разряд примера, а не часть текста
+                if (example.kind != null && example.kind != "phrase") {
+                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                        append(" ${example.kind}")
+                    }
+                }
+            },
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium
         )
-        if (!example.ruText.isNullOrBlank()) {
+        // У части примеров перевод разбит на подпункты: «куьг таӀо — а) …, б) …»
+        if (example.subs.isNotEmpty()) {
+            example.subs.forEach { sub ->
+                Text(
+                    text = listOfNotNull(sub.letter?.let { "$it)" }, sub.ru, sub.gov)
+                        .joinToString(" "),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontStyle = FontStyle.Italic
+                )
+            }
+        } else if (!example.ruText.isNullOrBlank()) {
             Text(
                 text = example.ruText,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontStyle = FontStyle.Italic
+            )
+        }
+        // Буквальный перевод идиомы: (букв. все, кто мо́жет владе́ть па́лкой)
+        if (!example.note.isNullOrBlank()) {
+            Text(
+                text = "(" + listOfNotNull(example.noteKind, example.note).joinToString(" ") + ")",
+                style = MaterialTheme.typography.labelSmall,
+                fontStyle = FontStyle.Italic,
+                color = MaterialTheme.colorScheme.secondary
             )
         }
     }
@@ -387,22 +469,17 @@ private fun RefRow(
     onNavigate: (Long) -> Unit,
     onSearch: (String) -> Unit
 ) {
-    val relLabel = when (ref.relType) {
-        "see" -> stringResource(R.string.rel_type_see)
-        "compare" -> stringResource(R.string.rel_type_compare)
-        "same_as" -> stringResource(R.string.rel_type_same_as)
-        "variant" -> stringResource(R.string.rel_type_variant)
-        "plural_of" -> stringResource(R.string.rel_type_plural_of)
-        "aspect_pair" -> stringResource(R.string.rel_type_aspect_pair)
-        else -> ref.relType
-    }
+    // Раньше здесь был перевод кодов `see`/`compare` в текст. Теперь отношение
+    // приходит из словаря как есть — «понуд. от», «потенц. от», «прил. к»,
+    // «мн. от»: у Мациева это готовые пометы, и их 15 видов вместо двух.
+    val relLabel = ref.rel
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable {
                 if (ref.toLemmaId != null) onNavigate(ref.toLemmaId)
-                else onSearch(ref.toHeadwordRaw)
+                else onSearch(ref.toHeadword)
             }
             .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -415,7 +492,7 @@ private fun RefRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = ref.toHeadwordRaw,
+                text = ref.toHeadword,
                 style = MaterialTheme.typography.bodyMedium.copy(
                     textDecoration = if (ref.toLemmaId != null) TextDecoration.Underline else TextDecoration.None
                 ),

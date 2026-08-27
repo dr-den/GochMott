@@ -238,7 +238,7 @@ private fun QuickEntry(hit: LemmaHit, onClick: () -> Unit) {
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            if (hit.homographN > 1) {
+            if (hit.homographN > 0) {
                 Text(
                     modifier = Modifier
                         .padding(start = 2.dp)

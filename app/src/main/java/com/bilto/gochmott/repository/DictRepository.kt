@@ -5,10 +5,13 @@ import com.bilto.gochmott.db.DatabaseHelper
 import com.bilto.gochmott.model.EntryDetail
 import com.bilto.gochmott.model.Example
 import com.bilto.gochmott.model.Form
+import com.bilto.gochmott.model.Gloss
 import com.bilto.gochmott.model.GramClass
 import com.bilto.gochmott.model.LemmaHit
+import com.bilto.gochmott.model.Marks
 import com.bilto.gochmott.model.Ref
 import com.bilto.gochmott.model.Sense
+import com.bilto.gochmott.model.Sub
 import com.bilto.gochmott.search.ChechenNormalizer
 import com.bilto.gochmott.search.FuzzyKey
 import com.bilto.gochmott.search.RuStem
@@ -16,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -27,68 +31,77 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         const val FUZZY_LIMIT = 30         // сколько «похожих» чеченских статей отдаём в UI
         const val RU_SUGGESTION_LIMIT = 10 // сколько похожих русских слов предлагаем
         const val RU_HITS_LIMIT = 100      // потолок статей на одно русское слово
+
+        /** Общий список колонок статьи: порядок жёстко завязан на [cursorToHit]. */
+        const val LEMMA_COLUMNS =
+            "l.id, l.headword, l.homonym, p.name_ru AS pos, l.class_star, " +
+            "l.pluralia_tantum, l.labels, l.obj_num, l.subj_num"
+
+        val RU_WORD = Regex("[а-яё]+")
+
+        /** Ключ ведра для примеров, не привязанных к значению (идиомы за «◊»). */
+        const val IDIOM_KEY = -1L
     }
 
-    // Path A: Chechen → Russian (exact normalized form match)
+    // Path A: Chechen → Russian (exact normalized form match).
+    //
+    // word_forms — единственный вход: заголовок, варианты, падежная и глагольная
+    // парадигма и сгенерированные классные формы лежат там вместе. Сгенерированные
+    // (source='gen') опускаем в конец выдачи: это верные ключи поиска, но их
+    // орфография восстановлена алгоритмом, а не взята из книги.
     suspend fun searchChechen(input: String): List<LemmaHit> = withContext(Dispatchers.IO) {
         val key = ChechenNormalizer.normalize(input)
         if (key.isEmpty()) return@withContext emptyList()
 
         val sql = """
-            SELECT l.id, l.headword, l.homograph_n, p.name_ru AS pos,
-                   l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note,
-                   MAX(wf.is_headword) AS exact_headword
+            SELECT $LEMMA_COLUMNS,
+                   MAX(wf.is_headword) AS exact_headword,
+                   MIN(CASE WHEN wf.source = 'gen' THEN 1 ELSE 0 END) AS only_gen
             FROM word_forms wf
             JOIN lemmas l   ON l.id = wf.lemma_id
             LEFT JOIN pos p ON p.id = l.pos_id
             WHERE wf.form_norm = ?
             GROUP BY l.id
-            ORDER BY exact_headword DESC, l.homograph_n
+            ORDER BY only_gen, exact_headword DESC, l.ordering
         """.trimIndent()
 
-        dbHelper.database.rawQuery(sql, arrayOf(key)).use { cursor ->
-            buildHits(cursor)
-        }
+        dbHelper.database.rawQuery(sql, arrayOf(key)).use { buildHits(it) }
     }
 
-    // Path B: Russian → Chechen (reverse index).
-    // ru_index ссылается прямо на lemmas.id — джойн через senses не нужен, а какое именно
-    // значение дало совпадение, индекс не хранит: глоссы навешивает enrichHits.
-    //
-    // Сначала ТОЧНОЕ слово: если «пол» есть в индексе, отдаём ровно его статьи и ничего
-    // больше не подмешиваем. Поиск по основе Snowball — только запасной путь для форм,
-    // которых в индексе нет: основа у «пол» общая с «поле», «полено», «полый» (8 статей
-    // против 30), у «вода» — с «водить». Как отдельный путь это мусор в выдаче.
+    /**
+     * Path B: Russian → Chechen.
+     *
+     * Обратный индекс пословный, а перевод целиком лежит в `glosses.ru_norm`,
+     * поэтому запрос проходит тремя слоями, от точного к приблизительному:
+     *
+     *  1. вся фраза совпала с переводом    «ка́ждый раз»      -> хӀоразза
+     *  2. все слова запроса есть в переводе «ошибки находить» -> гӀа̃латашда̃ха
+     *  3. совпали основы Snowball          «утомления»        -> гӀелдар, хьахар¹
+     *
+     * Основы — именно запасной слой, а не отдельный путь: у «пол» основа общая
+     * с «поле», «полено», «полый», и как самостоятельная выдача это мусор.
+     */
     suspend fun searchRussian(input: String): List<LemmaHit> = withContext(Dispatchers.IO) {
-        val word = normalizeRussian(input)
-        if (word.isEmpty()) return@withContext emptyList()
+        val phrase = normalizeRussian(input)
+        if (phrase.isEmpty()) return@withContext emptyList()
+        val words = RU_WORD.findAll(phrase).map { it.value }.toList()
+        if (words.isEmpty()) return@withContext emptyList()
 
-        val exact = hitsForRussianWord(word)
+        val byPhrase = hitsForPhrase(phrase)
+        val byWords = hitsForRussianWords(words, "word")
+        val exact = (byPhrase + byWords).distinctBy { it.id }
         if (exact.isNotEmpty()) return@withContext exact
 
-        val stem = RuStem.stem(word)
-        if (stem.isEmpty()) return@withContext emptyList()
-
-        // DISTINCT нужен: разные словоформы («рука», «руки») имеют одну основу
-        // и ведут в одну статью.
-        val sqlByStem = """
-            SELECT DISTINCT l.id, l.headword, l.homograph_n, p.name_ru AS pos,
-                   l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note,
-                   0 AS exact_headword
-            FROM ru_index ri
-            JOIN lemmas l   ON l.id = ri.lemma_id
-            LEFT JOIN pos p ON p.id = l.pos_id
-            WHERE ri.stem = ?
-            ORDER BY l.headword
-            LIMIT $RU_HITS_LIMIT
-        """.trimIndent()
-
-        dbHelper.database.rawQuery(sqlByStem, arrayOf(stem)).use { buildHits(it) }
+        val stems = words.map { RuStem.stem(it) }.filter { it.isNotEmpty() }
+        if (stems.isEmpty()) return@withContext emptyList()
+        hitsForRussianWords(stems, "stem")
     }
 
     /** Так же, как нормализованы ключи `ru_index.word` при сборке БД. */
     private fun normalizeRussian(input: String): String =
         input.trim().lowercase().replace('ё', 'е')
+            .filterNot { it == Marks.STRESS }   // вставленный текст бывает с ударениями
+            .replace(Regex("\\s+"), " ")
 
     // Path C: примерный поиск чеч→рус. Идёт ВСЕГДА, параллельно точному, — потому что
     // «куг»/«кюг» вместо «куьг» не находятся ни точным поиском, ни подстрокой:
@@ -116,8 +129,8 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         for (i in index.ceLemmaId.indices) offer(index.ceLemmaId[i], index.ceSkeleton[i])
 
         // 2) подстрока по всем словоформам: части слова и падежные/глагольные формы
-        substringFormMatches(ChechenNormalizer.normalize(input)).forEach { (lemmaId, headword) ->
-            offer(lemmaId, FuzzyKey.chechen(headword))
+        substringFormMatches(ChechenNormalizer.normalize(input)).forEach { (lemmaId, skeleton2) ->
+            offer(lemmaId, skeleton2)
         }
 
         val order = candidates.entries
@@ -187,7 +200,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
 
         if (dbHelper.hasFts5) {
             val sqlFts = """
-                SELECT DISTINCT l.id, l.headword
+                SELECT DISTINCT l.id, l.headword_fold
                 FROM forms_trgm f
                 JOIN word_forms wf ON wf.id = f.rowid
                 JOIN lemmas l      ON l.id = wf.lemma_id
@@ -209,7 +222,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         }.distinct()
 
         val sqlLike = """
-            SELECT DISTINCT l.id, l.headword
+            SELECT DISTINCT l.id, l.headword_fold
             FROM word_forms wf
             JOIN lemmas l ON l.id = wf.lemma_id
             WHERE wf.form_norm LIKE ?
@@ -223,33 +236,57 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         return found.map { it.key to it.value }
     }
 
-    /**
-     * Все статьи, связанные с одним русским словом. PK `(word, lemma_id)` гарантирует,
-     * что дублей не будет. Потолок нужен из-за служебных «слов», просочившихся в индекс
-     * при разборе словаря («мн» — 655 статей, «прич» — 391).
-     */
-    private fun hitsForRussianWord(word: String): List<LemmaHit> {
+    /** Весь перевод целиком совпал с запросом — самое сильное попадание рус→чеч. */
+    private fun hitsForPhrase(phrase: String): List<LemmaHit> {
         val sql = """
-            SELECT l.id, l.headword, l.homograph_n, p.name_ru AS pos,
-                   l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note,
-                   0 AS exact_headword
-            FROM ru_index ri
-            JOIN lemmas l   ON l.id = ri.lemma_id
+            SELECT $LEMMA_COLUMNS, 0 AS exact_headword, g.ru AS matched
+            FROM glosses g
+            JOIN lemmas l   ON l.id = g.lemma_id
             LEFT JOIN pos p ON p.id = l.pos_id
-            WHERE ri.word = ?
-            ORDER BY l.headword
+            WHERE g.ru_norm = ?
+            GROUP BY l.id
+            ORDER BY l.ordering
             LIMIT $RU_HITS_LIMIT
         """.trimIndent()
-        return dbHelper.database.rawQuery(sql, arrayOf(word)).use { buildHits(it) }
+        return dbHelper.database.rawQuery(sql, arrayOf(phrase)).use { buildHits(it, matched = 10) }
+    }
+
+    /**
+     * Статьи, у которых в переводе есть ВСЕ переданные слова (или основы).
+     *
+     * `src` в индексе задаёт, откуда взято совпадение: 0 — перевод значения,
+     * 1 — перевод примера, 2 — идиома, 3 — протянуто по отсылке («понуд. от»).
+     * Сортировка по `MIN(src)` поднимает словарные значения над примерами.
+     */
+    private fun hitsForRussianWords(keys: List<String>, column: String): List<LemmaHit> {
+        if (keys.isEmpty()) return emptyList()
+        val distinct = keys.distinct()
+        val placeholders = distinct.joinToString(",") { "?" }
+        // MIN(r.src) рядом с «голой» g.ru — документированное поведение SQLite:
+        // неагрегированная колонка берётся из той строки, что дала минимум.
+        // Значит показанный перевод — это перевод сильнейшего совпадения.
+        val sql = """
+            SELECT $LEMMA_COLUMNS, 0 AS exact_headword,
+                   MIN(r.src) AS best_src, g.ru AS matched
+            FROM ru_index r
+            JOIN lemmas l          ON l.id = r.lemma_id
+            LEFT JOIN pos p        ON p.id = l.pos_id
+            LEFT JOIN glosses g    ON g.id = r.target_id AND r.src IN (0, 3)
+            WHERE r.$column IN ($placeholders)
+            GROUP BY l.id
+            HAVING COUNT(DISTINCT r.$column) = ${distinct.size}
+            ORDER BY best_src, l.ordering
+            LIMIT $RU_HITS_LIMIT
+        """.trimIndent()
+        return dbHelper.database.rawQuery(sql, distinct.toTypedArray())
+            .use { buildHits(it, matched = 11) }
     }
 
     private fun loadHits(ids: List<Long>): List<LemmaHit> {
         if (ids.isEmpty()) return emptyList()
         val placeholders = ids.joinToString(",") { "?" }
         val sql = """
-            SELECT l.id, l.headword, l.homograph_n, p.name_ru AS pos,
-                   l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note,
-                   0 AS exact_headword
+            SELECT $LEMMA_COLUMNS, 0 AS exact_headword
             FROM lemmas l
             LEFT JOIN pos p ON p.id = l.pos_id
             WHERE l.id IN ($placeholders)
@@ -259,9 +296,9 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
     }
 
     // ---- индекс примерного поиска ----
-    // Скелетов нет в БД (её нельзя пересобирать), поэтому держим их в памяти:
-    // 20 423 заголовка + 28 700 русских слов ≈ 3 МБ. Прогон запроса по всему массиву с
-    // отсечкой по Левенштейну — единицы миллисекунд, так что индекс плоский, без хеш-карт.
+    // Скелеты чеченских заголовков теперь считает сборщик БД (`headword_fold`,
+    // тот же порт FuzzyKey), поэтому при старте их достаточно прочитать.
+    // Русские скелеты считаются на месте: в БД лежат только сами слова.
 
     private class FuzzyIndex(
         val ceLemmaId: LongArray,
@@ -284,9 +321,9 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
     private fun buildFuzzyIndex(): FuzzyIndex {
         val ceIds = ArrayList<Long>(21_000)
         val ceKeys = ArrayList<String>(21_000)
-        dbHelper.database.rawQuery("SELECT id, headword_norm FROM lemmas", null).use { cursor ->
+        dbHelper.database.rawQuery("SELECT id, headword_fold FROM lemmas", null).use { cursor ->
             while (cursor.moveToNext()) {
-                val key = FuzzyKey.chechenFromNormalized(cursor.getStringOrNull(1))
+                val key = cursor.getStringOrNull(1) ?: continue
                 if (key.length < MIN_FUZZY_LEN) continue
                 ceIds.add(cursor.getLong(0))
                 ceKeys.add(key)
@@ -316,39 +353,40 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
     // Full article detail by lemma id
     suspend fun getEntryDetail(lemmaId: Long): EntryDetail = withContext(Dispatchers.IO) {
         val lemma = getLemmaHit(lemmaId)
-        val forms = getForms(lemmaId)
-        val senses = getSenses(lemmaId)
-        val examples = getExamples(lemmaId)
-        val refs = getRefs(lemmaId)
-        val classes = getClasses(lemmaId)
-
+        val examplesBySense = getExamples(lemmaId)
         EntryDetail(
-            lemma = lemma.copy(classes = classes),
-            forms = forms,
-            senses = senses,
-            examples = examples,
-            refs = refs
+            lemma = lemma.copy(classes = getClasses(lemmaId)),
+            forms = getForms(lemmaId),
+            senses = getSenses(lemmaId, examplesBySense),
+            idioms = examplesBySense[IDIOM_KEY].orEmpty(),
+            refs = getRefs(lemmaId)
         )
     }
 
     private fun getLemmaHit(lemmaId: Long): LemmaHit {
         val sql = """
-            SELECT l.id, l.headword, l.homograph_n, p.name_ru AS pos,
-                   l.is_class_agreeing, l.pluralia_tantum, l.indeclinable, l.gram_note,
-                   1 AS exact_headword
+            SELECT $LEMMA_COLUMNS, 1 AS exact_headword
             FROM lemmas l
             LEFT JOIN pos p ON p.id = l.pos_id
             WHERE l.id = ?
         """.trimIndent()
         return dbHelper.database.rawQuery(sql, arrayOf(lemmaId.toString())).use { cursor ->
             if (cursor.moveToFirst()) cursorToHit(cursor) else LemmaHit(
-                id = lemmaId, headword = "?", homographN = 1, pos = null,
-                isClassAgreeing = false, pluraliaTantum = false, indeclinable = false,
-                gramNote = null, exactHeadword = false
+                id = lemmaId, headword = "?", homographN = 0, pos = null,
+                isClassAgreeing = false, pluraliaTantum = false, labels = emptyList(),
+                objNum = null, subjNum = null, exactHeadword = false
             )
         }
     }
 
+    /**
+     * Формы для карточки — только напечатанные в книге.
+     *
+     * `source='gen'` отфильтрован сознательно: замена классного показателя даёт
+     * верный ключ поиска, но не всегда принятую орфографию (у `даа` й-класс
+     * пишется `яа`, а генератор выдаёт `йаа`). Искать по ним можно, показывать
+     * как форму слова — нет.
+     */
     private fun getForms(lemmaId: Long): List<Form> {
         val sql = """
             SELECT wf.form, wf.is_headword,
@@ -358,14 +396,14 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
             LEFT JOIN case_type   ct ON ct.id = wf.case_id
             LEFT JOIN number_type nt ON nt.id = wf.number_id
             LEFT JOIN verb_tam    vt ON vt.id = wf.tam_id
-            WHERE wf.lemma_id = ?
-            ORDER BY wf.is_headword DESC, nt.code, ct.ordering
+            WHERE wf.lemma_id = ? AND wf.source = 'dict' AND wf.kind <> 'variant'
+            ORDER BY wf.is_headword DESC, wf.number_id, ct.ordering, wf.ordering
         """.trimIndent()
         return dbHelper.database.rawQuery(sql, arrayOf(lemmaId.toString())).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
                     add(Form(
-                        form = cursor.getString(0) ?: "",
+                        form = Marks.ce(cursor.getString(0)),
                         isHeadword = cursor.getInt(1) == 1,
                         caseAbbr = cursor.getStringOrNull(2),
                         caseName = cursor.getStringOrNull(3),
@@ -378,59 +416,122 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         }
     }
 
-    private fun getSenses(lemmaId: Long): List<Sense> {
+    private fun getSenses(lemmaId: Long, examples: Map<Long, List<Example>>): List<Sense> {
+        val glosses = getGlosses(lemmaId)
         val sql = """
-            SELECT s.id, s.sense_no, s.gloss_ru, s.domain
+            SELECT s.id, s.sense_no, s.block_n, p.name_ru AS pos, s.labels
             FROM senses s
+            LEFT JOIN pos p ON p.id = s.pos_id
             WHERE s.lemma_id = ?
-            ORDER BY s.sense_no
+            ORDER BY s.block_n, s.ordering
         """.trimIndent()
         return dbHelper.database.rawQuery(sql, arrayOf(lemmaId.toString())).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
+                    val id = cursor.getLong(0)
                     add(Sense(
-                        id = cursor.getLong(0),
-                        senseNo = cursor.getInt(1),
-                        glossRu = cursor.getString(2) ?: "",
-                        domain = cursor.getStringOrNull(3)
+                        id = id,
+                        senseNo = if (cursor.isNull(1)) null else cursor.getInt(1),
+                        blockN = if (cursor.isNull(2)) null else cursor.getInt(2),
+                        pos = cursor.getStringOrNull(3),
+                        labels = jsonList(cursor.getStringOrNull(4)),
+                        glosses = glosses[id].orEmpty(),
+                        examples = examples[id].orEmpty()
                     ))
                 }
             }
         }
     }
 
-    private fun getExamples(lemmaId: Long): List<Example> {
+    private fun getGlosses(lemmaId: Long): Map<Long, List<Gloss>> {
         val sql = """
-            SELECT ce_text, ru_text, kind
-            FROM examples
-            WHERE lemma_id = ?
-            ORDER BY (kind='idiom') DESC, id
+            SELECT g.sense_id, g.ru, g.sep, g.note, g.gov, g.labels
+            FROM glosses g
+            WHERE g.lemma_id = ?
+            ORDER BY g.sense_id, g.idx
         """.trimIndent()
-        return dbHelper.database.rawQuery(sql, arrayOf(lemmaId.toString())).use { cursor ->
-            buildList {
-                while (cursor.moveToNext()) {
-                    add(Example(
-                        ceText = cursor.getString(0) ?: "",
-                        ruText = cursor.getStringOrNull(1),
-                        kind = cursor.getString(2) ?: "example"
-                    ))
-                }
+        val out = LinkedHashMap<Long, MutableList<Gloss>>()
+        dbHelper.database.rawQuery(sql, arrayOf(lemmaId.toString())).use { cursor ->
+            while (cursor.moveToNext()) {
+                out.getOrPut(cursor.getLong(0)) { mutableListOf() }.add(Gloss(
+                    ru = Marks.ru(cursor.getString(1)) ?: "",
+                    sep = cursor.getStringOrNull(2),
+                    note = Marks.ru(cursor.getStringOrNull(3)),
+                    gov = cursor.getStringOrNull(4),
+                    labels = jsonList(cursor.getStringOrNull(5))
+                ))
             }
         }
+        return out
+    }
+
+    /** Примеры, разложенные по значениям. Идиомы статьи лежат под [IDIOM_KEY]. */
+    private fun getExamples(lemmaId: Long): Map<Long, List<Example>> {
+        val subs = getSubs(lemmaId)
+        val sql = """
+            SELECT e.id, e.sense_id, e.is_idiom, e.ce, e.ru, e.kind,
+                   e.note, e.note_kind, e.gov, e.labels
+            FROM examples e
+            WHERE e.lemma_id = ?
+            ORDER BY e.is_idiom, e.sense_id, e.idx
+        """.trimIndent()
+        val out = LinkedHashMap<Long, MutableList<Example>>()
+        dbHelper.database.rawQuery(sql, arrayOf(lemmaId.toString())).use { cursor ->
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(0)
+                val isIdiom = cursor.getInt(2) == 1
+                val bucket = if (isIdiom || cursor.isNull(1)) IDIOM_KEY else cursor.getLong(1)
+                out.getOrPut(bucket) { mutableListOf() }.add(Example(
+                    ceText = Marks.ce(cursor.getString(3)),
+                    ruText = Marks.ru(cursor.getStringOrNull(4)),
+                    kind = cursor.getStringOrNull(5),
+                    isIdiom = isIdiom,
+                    note = Marks.ru(cursor.getStringOrNull(6)),
+                    noteKind = cursor.getStringOrNull(7),
+                    gov = cursor.getStringOrNull(8),
+                    labels = jsonList(cursor.getStringOrNull(9)),
+                    subs = subs[id].orEmpty()
+                ))
+            }
+        }
+        return out
+    }
+
+    private fun getSubs(lemmaId: Long): Map<Long, List<Sub>> {
+        val sql = """
+            SELECT s.example_id, s.letter, s.ru, s.note, s.gov
+            FROM subs s
+            JOIN examples e ON e.id = s.example_id
+            WHERE e.lemma_id = ?
+            ORDER BY s.example_id, s.idx
+        """.trimIndent()
+        val out = LinkedHashMap<Long, MutableList<Sub>>()
+        dbHelper.database.rawQuery(sql, arrayOf(lemmaId.toString())).use { cursor ->
+            while (cursor.moveToNext()) {
+                out.getOrPut(cursor.getLong(0)) { mutableListOf() }.add(Sub(
+                    letter = cursor.getStringOrNull(1),
+                    ru = Marks.ru(cursor.getString(2)) ?: "",
+                    note = Marks.ru(cursor.getStringOrNull(3)),
+                    gov = cursor.getStringOrNull(4)
+                ))
+            }
+        }
+        return out
     }
 
     private fun getRefs(lemmaId: Long): List<Ref> {
         val sql = """
-            SELECT rel_type, to_headword_raw, to_lemma_id
+            SELECT rel, to_headword, to_lemma_id
             FROM cross_refs
             WHERE from_lemma_id = ?
+            ORDER BY id
         """.trimIndent()
         return dbHelper.database.rawQuery(sql, arrayOf(lemmaId.toString())).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
                     add(Ref(
-                        relType = cursor.getString(0) ?: "",
-                        toHeadwordRaw = cursor.getString(1) ?: "",
+                        rel = cursor.getString(0) ?: "",
+                        toHeadword = Marks.ce(cursor.getString(1)),
                         toLemmaId = if (cursor.isNull(2)) null else cursor.getLong(2)
                     ))
                 }
@@ -440,82 +541,107 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
 
     private fun getClasses(lemmaId: Long): List<GramClass> {
         val sql = """
-            SELECT gc.marker, nt.code AS number
-            FROM lemma_class lc
-            JOIN gram_class   gc ON gc.id = lc.class_id
-            JOIN number_type  nt ON nt.id = lc.number_id
-            WHERE lc.lemma_id = ?
+            SELECT marker, number FROM lemma_class
+            WHERE lemma_id = ? ORDER BY number DESC, ordering
         """.trimIndent()
         return dbHelper.database.rawQuery(sql, arrayOf(lemmaId.toString())).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
-                    add(GramClass(
-                        marker = cursor.getString(0) ?: "",
-                        number = cursor.getString(1) ?: ""
-                    ))
+                    add(GramClass(cursor.getString(0) ?: "", cursor.getString(1) ?: ""))
                 }
             }
         }
     }
 
-    // Enrich hits with first 2 senses and gram classes (single batch query per type)
+    /**
+     * Довешивает на карточки выдачи первые два значения и классы.
+     *
+     * Значение теперь состоит из нескольких переводов («ослабле́ние; утомле́ние»),
+     * поэтому глоссы одного значения склеиваются своим же разделителем из книги.
+     */
     suspend fun enrichHits(hits: List<LemmaHit>): List<LemmaHit> = withContext(Dispatchers.IO) {
         if (hits.isEmpty()) return@withContext emptyList()
         val ids = hits.map { it.id }
         val placeholders = ids.joinToString(",") { "?" }
         val args = ids.map { it.toString() }.toTypedArray()
 
-        val sensesMap = mutableMapOf<Long, MutableList<String>>()
+        val sensesMap = mutableMapOf<Long, MutableList<StringBuilder>>()
+        val senseOrder = mutableMapOf<Long, MutableMap<Long, Int>>()
         dbHelper.database.rawQuery(
-            "SELECT lemma_id, gloss_ru FROM senses WHERE lemma_id IN ($placeholders) ORDER BY lemma_id, sense_no",
+            """SELECT g.lemma_id, g.sense_id, g.ru, g.sep
+               FROM glosses g
+               JOIN senses s ON s.id = g.sense_id
+               WHERE g.lemma_id IN ($placeholders)
+               ORDER BY g.lemma_id, s.block_n, s.ordering, g.idx""",
             args
         ).use { c ->
             while (c.moveToNext()) {
                 val lid = c.getLong(0)
-                val g = c.getString(1) ?: continue
-                sensesMap.getOrPut(lid) { mutableListOf() }.also { if (it.size < 2) it.add(g) }
+                val sid = c.getLong(1)
+                val ru = Marks.ru(c.getString(2)) ?: continue
+                val order = senseOrder.getOrPut(lid) { mutableMapOf() }
+                val lines = sensesMap.getOrPut(lid) { mutableListOf() }
+                val slot = order[sid]
+                if (slot == null) {
+                    if (lines.size >= 2) continue          // в карточку идут первые два
+                    order[sid] = lines.size
+                    lines.add(StringBuilder(ru))
+                } else {
+                    lines[slot].append(c.getStringOrNull(3) ?: ",").append(' ').append(ru)
+                }
             }
         }
 
         val classesMap = mutableMapOf<Long, MutableList<GramClass>>()
         dbHelper.database.rawQuery(
-            """SELECT lc.lemma_id, gc.marker, nt.code
-               FROM lemma_class lc
-               JOIN gram_class gc ON gc.id = lc.class_id
-               JOIN number_type nt ON nt.id = lc.number_id
-               WHERE lc.lemma_id IN ($placeholders)""",
+            """SELECT lemma_id, marker, number FROM lemma_class
+               WHERE lemma_id IN ($placeholders) ORDER BY number DESC, ordering""",
             args
         ).use { c ->
             while (c.moveToNext()) {
-                val lid = c.getLong(0)
-                classesMap.getOrPut(lid) { mutableListOf() }
+                classesMap.getOrPut(c.getLong(0)) { mutableListOf() }
                     .add(GramClass(c.getString(1) ?: "", c.getString(2) ?: ""))
             }
         }
 
         hits.map { hit ->
             hit.copy(
-                firstSenses = sensesMap[hit.id] ?: emptyList(),
+                firstSenses = sensesMap[hit.id]?.map { it.toString() } ?: emptyList(),
                 classes = classesMap[hit.id] ?: emptyList()
             )
         }
     }
 
-    private fun buildHits(cursor: Cursor): List<LemmaHit> = buildList {
-        while (cursor.moveToNext()) add(cursorToHit(cursor))
+    private fun buildHits(cursor: Cursor, matched: Int = -1): List<LemmaHit> = buildList {
+        while (cursor.moveToNext()) add(cursorToHit(cursor, matched))
     }
 
-    private fun cursorToHit(cursor: Cursor) = LemmaHit(
+    private fun cursorToHit(cursor: Cursor, matched: Int = -1) = LemmaHit(
         id = cursor.getLong(0),
-        headword = cursor.getString(1) ?: "",
-        homographN = cursor.getInt(2),
+        headword = Marks.ce(cursor.getString(1)),
+        // homonym в БД NULL у неомонимов — в модели это 0, надстрочный номер не рисуем
+        homographN = if (cursor.isNull(2)) 0 else cursor.getInt(2),
         pos = cursor.getStringOrNull(3),
         isClassAgreeing = cursor.getInt(4) == 1,
         pluraliaTantum = cursor.getInt(5) == 1,
-        indeclinable = cursor.getInt(6) == 1,
-        gramNote = cursor.getStringOrNull(7),
-        exactHeadword = cursor.getInt(8) == 1
+        labels = jsonList(cursor.getStringOrNull(6)),
+        objNum = cursor.getStringOrNull(7),
+        subjNum = cursor.getStringOrNull(8),
+        exactHeadword = cursor.getInt(9) == 1,
+        matchedGloss = if (matched >= 0 && matched < cursor.columnCount)
+            Marks.ru(cursor.getStringOrNull(matched)) else null
     )
+
+    /** Пометы и классы лежат JSON-массивами: в SQLite нет типа «массив». */
+    private fun jsonList(raw: String?): List<String> {
+        if (raw.isNullOrEmpty() || raw == "[]") return emptyList()
+        return try {
+            val array = JSONArray(raw)
+            buildList { for (i in 0 until array.length()) add(array.optString(i)) }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
 
     private fun Cursor.getStringOrNull(index: Int): String? =
         if (isNull(index)) null else getString(index)
