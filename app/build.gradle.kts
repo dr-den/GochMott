@@ -8,13 +8,13 @@ plugins {
 }
 
 android {
-    namespace = "com.vaynah.gochmott"
+    namespace = "com.bilto.gochmott"
     compileSdk {
         version = release(37)
     }
 
     defaultConfig {
-        applicationId = "com.vaynah.gochmott"
+        applicationId = "com.bilto.gochmott"
         minSdk = 26
         targetSdk = 37
         versionCode = 8

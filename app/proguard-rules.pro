@@ -10,4 +10,4 @@
 -dontwarn java.lang.ModuleLayer
 -dontwarn java.lang.Runtime$Version
 
-# -keep class com.vaynah.gochmott.models.** { *; }
+# -keep class com.bilto.gochmott.models.** { *; }
