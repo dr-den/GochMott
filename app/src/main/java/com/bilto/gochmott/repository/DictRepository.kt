@@ -386,6 +386,10 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
      * верный ключ поиска, но не всегда принятую орфографию (у `даа` й-класс
      * пишется `яа`, а генератор выдаёт `йаа`). Искать по ним можно, показывать
      * как форму слова — нет.
+     *
+     * Заголовочная форма тоже не возвращается: она уже стоит в шапке карточки.
+     * Если её оставить, у статьи без парадигмы список окажется непустым, таблица
+     * отфильтрует единственную строку и покажет пустую рамку.
      */
     private fun getForms(lemmaId: Long): List<Form> {
         val sql = """
@@ -396,7 +400,8 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
             LEFT JOIN case_type   ct ON ct.id = wf.case_id
             LEFT JOIN number_type nt ON nt.id = wf.number_id
             LEFT JOIN verb_tam    vt ON vt.id = wf.tam_id
-            WHERE wf.lemma_id = ? AND wf.source = 'dict' AND wf.kind <> 'variant'
+            WHERE wf.lemma_id = ? AND wf.source = 'dict'
+              AND wf.kind NOT IN ('variant', 'headword')
             ORDER BY wf.is_headword DESC, wf.number_id, ct.ordering, wf.ordering
         """.trimIndent()
         return dbHelper.database.rawQuery(sql, arrayOf(lemmaId.toString())).use { cursor ->

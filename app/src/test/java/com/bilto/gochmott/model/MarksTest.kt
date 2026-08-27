@@ -19,16 +19,22 @@ class MarksTest {
 
     @After
     fun restoreDefaults() {
-        Marks.showLength = false
+        Marks.showLength = true
         Marks.showStress = true
     }
 
     @Test
-    fun `долгота снимается, ударение остаётся — умолчание приложения`() {
-        Marks.showLength = false
+    fun `умолчание приложения — оба знака показаны`() {
+        Marks.showLength = true
         Marks.showStress = true
-        assertEquals("хададала", Marks.ce("ха̃дадала"))
+        assertEquals("ха̃дадала", Marks.ce("ха̃дадала"))
         assertEquals("ка́ждый раз", Marks.ru("ка́ждый раз"))
+    }
+
+    @Test
+    fun `долгота снимается, когда выключена`() {
+        Marks.showLength = false
+        assertEquals("хададала", Marks.ce("ха̃дадала"))
     }
 
     @Test

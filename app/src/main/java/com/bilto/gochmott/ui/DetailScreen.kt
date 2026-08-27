@@ -354,8 +354,7 @@ private fun glossesText(glosses: List<Gloss>) = buildAnnotatedString {
 
 @Composable
 private fun FormsTable(forms: List<Form>) {
-    // Group non-headword forms; show headword at top
-    val headword = forms.firstOrNull { it.isHeadword }
+    // Заголовочную форму репозиторий не отдаёт — она в шапке карточки
     val rest = forms.filter { !it.isHeadword }
 
     Column(
