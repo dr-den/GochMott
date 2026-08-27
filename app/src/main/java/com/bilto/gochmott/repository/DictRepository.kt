@@ -8,11 +8,11 @@ import com.bilto.gochmott.model.Form
 import com.bilto.gochmott.model.Gloss
 import com.bilto.gochmott.model.GramClass
 import com.bilto.gochmott.model.LemmaHit
-import com.bilto.gochmott.model.Marks
 import com.bilto.gochmott.model.Ref
 import com.bilto.gochmott.model.Sense
 import com.bilto.gochmott.model.Sub
 import com.bilto.gochmott.search.ChechenNormalizer
+import com.bilto.gochmott.search.Diacritics
 import com.bilto.gochmott.search.FuzzyKey
 import com.bilto.gochmott.search.RuStem
 import kotlinx.coroutines.Dispatchers
@@ -100,7 +100,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
     /** Так же, как нормализованы ключи `ru_index.word` при сборке БД. */
     private fun normalizeRussian(input: String): String =
         input.trim().lowercase().replace('ё', 'е')
-            .filterNot { it == Marks.STRESS }   // вставленный текст бывает с ударениями
+            .filterNot { it == Diacritics.STRESS }   // вставленный текст бывает с ударениями
             .replace(Regex("\\s+"), " ")
 
     // Path C: примерный поиск чеч→рус. Идёт ВСЕГДА, параллельно точному, — потому что
@@ -408,7 +408,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
             buildList {
                 while (cursor.moveToNext()) {
                     add(Form(
-                        form = Marks.ce(cursor.getString(0)),
+                        form = cursor.getString(0) ?: "",
                         isHeadword = cursor.getInt(1) == 1,
                         caseAbbr = cursor.getStringOrNull(2),
                         caseName = cursor.getStringOrNull(3),
@@ -459,9 +459,9 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         dbHelper.database.rawQuery(sql, arrayOf(lemmaId.toString())).use { cursor ->
             while (cursor.moveToNext()) {
                 out.getOrPut(cursor.getLong(0)) { mutableListOf() }.add(Gloss(
-                    ru = Marks.ru(cursor.getString(1)) ?: "",
+                    ru = cursor.getString(1) ?: "",
                     sep = cursor.getStringOrNull(2),
-                    note = Marks.ru(cursor.getStringOrNull(3)),
+                    note = cursor.getStringOrNull(3),
                     gov = cursor.getStringOrNull(4),
                     labels = jsonList(cursor.getStringOrNull(5))
                 ))
@@ -487,11 +487,11 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
                 val isIdiom = cursor.getInt(2) == 1
                 val bucket = if (isIdiom || cursor.isNull(1)) IDIOM_KEY else cursor.getLong(1)
                 out.getOrPut(bucket) { mutableListOf() }.add(Example(
-                    ceText = Marks.ce(cursor.getString(3)),
-                    ruText = Marks.ru(cursor.getStringOrNull(4)),
+                    ceText = cursor.getString(3) ?: "",
+                    ruText = cursor.getStringOrNull(4),
                     kind = cursor.getStringOrNull(5),
                     isIdiom = isIdiom,
-                    note = Marks.ru(cursor.getStringOrNull(6)),
+                    note = cursor.getStringOrNull(6),
                     noteKind = cursor.getStringOrNull(7),
                     gov = cursor.getStringOrNull(8),
                     labels = jsonList(cursor.getStringOrNull(9)),
@@ -515,8 +515,8 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
             while (cursor.moveToNext()) {
                 out.getOrPut(cursor.getLong(0)) { mutableListOf() }.add(Sub(
                     letter = cursor.getStringOrNull(1),
-                    ru = Marks.ru(cursor.getString(2)) ?: "",
-                    note = Marks.ru(cursor.getStringOrNull(3)),
+                    ru = cursor.getString(2) ?: "",
+                    note = cursor.getStringOrNull(3),
                     gov = cursor.getStringOrNull(4)
                 ))
             }
@@ -536,7 +536,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
                 while (cursor.moveToNext()) {
                     add(Ref(
                         rel = cursor.getString(0) ?: "",
-                        toHeadword = Marks.ce(cursor.getString(1)),
+                        toHeadword = cursor.getString(1) ?: "",
                         toLemmaId = if (cursor.isNull(2)) null else cursor.getLong(2)
                     ))
                 }
@@ -583,7 +583,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
             while (c.moveToNext()) {
                 val lid = c.getLong(0)
                 val sid = c.getLong(1)
-                val ru = Marks.ru(c.getString(2)) ?: continue
+                val ru = c.getString(2) ?: continue
                 val order = senseOrder.getOrPut(lid) { mutableMapOf() }
                 val lines = sensesMap.getOrPut(lid) { mutableListOf() }
                 val slot = order[sid]
@@ -623,7 +623,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
 
     private fun cursorToHit(cursor: Cursor, matched: Int = -1) = LemmaHit(
         id = cursor.getLong(0),
-        headword = Marks.ce(cursor.getString(1)),
+        headword = cursor.getString(1) ?: "",
         // homonym в БД NULL у неомонимов — в модели это 0, надстрочный номер не рисуем
         homographN = if (cursor.isNull(2)) 0 else cursor.getInt(2),
         pos = cursor.getStringOrNull(3),
@@ -634,7 +634,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         subjNum = cursor.getStringOrNull(8),
         exactHeadword = cursor.getInt(9) == 1,
         matchedGloss = if (matched >= 0 && matched < cursor.columnCount)
-            Marks.ru(cursor.getStringOrNull(matched)) else null
+            cursor.getStringOrNull(matched) else null
     )
 
     /** Пометы и классы лежат JSON-массивами: в SQLite нет типа «массив». */

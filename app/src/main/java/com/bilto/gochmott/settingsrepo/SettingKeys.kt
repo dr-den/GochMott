@@ -4,6 +4,12 @@ package com.bilto.gochmott.settingsrepo
 object SettingKeys {
     val searchHistoryCeToRu = SettingKey.Str("searchHistoryCeToRu", "")
     val searchHistoryRuToCe = SettingKey.Str("searchHistoryRuToCe", "")
+
+    /** Чёрточки долготы в чеченских словах: `ха̃дадала` против `хададала`. */
+    val showCeLength = SettingKey.Bool("showCeLength", true)
+
+    /** Ударения в русских переводах: `ка́ждый раз` против `каждый раз`. */
+    val showRuStress = SettingKey.Bool("showRuStress", true)
 }
 
 

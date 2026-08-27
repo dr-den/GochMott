@@ -227,13 +227,13 @@ private fun QuickEntry(hit: LemmaHit, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .copyOnLongPress(hit.headword, onClick)
             .padding(vertical = 6.dp)
     ) {
         Row {
             Text(
                 modifier = Modifier.alignByBaseline(),
-                text = hit.headword,
+                text = Marks.ce(hit.headword),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -265,7 +265,7 @@ private fun QuickEntry(hit: LemmaHit, onClick: () -> Unit) {
                     if (hit.firstSenses.size > 1) {
                         withStyle(SpanStyle(fontWeight = FontWeight.Medium)) { append("${i + 1}. ") }
                     }
-                    append(gloss)
+                    append(Marks.ru(gloss).orEmpty())
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant

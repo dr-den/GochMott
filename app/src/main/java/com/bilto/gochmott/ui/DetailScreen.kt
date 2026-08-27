@@ -74,7 +74,7 @@ fun DetailScreen(
                         val detail = (state as DetailState.Success).detail
                         Text(
                             text = buildAnnotatedString {
-                                append(detail.lemma.headword)
+                                append(Marks.ce(detail.lemma.headword))
                                 if (detail.lemma.homographN > 0) {
                                     withStyle(SpanStyle(fontSize = 12.sp, baselineShift = androidx.compose.ui.text.style.BaselineShift.Superscript)) {
                                         append("${detail.lemma.homographN}")
@@ -151,8 +151,10 @@ private fun DetailContent(
             Column {
                 Row {
                     Text(
-                        modifier = Modifier.alignByBaseline(),
-                        text = lemma.headword,
+                        modifier = Modifier
+                            .alignByBaseline()
+                            .copyOnLongPress(lemma.headword),
+                        text = Marks.ce(lemma.headword),
                         style = MaterialTheme.typography.titleLarge.copy(fontSize = 28.sp),
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -320,7 +322,8 @@ private fun SenseBlock(sense: Sense, startsBlock: Boolean) {
                 }
                 Text(
                     text = glossesText(sense.glosses),
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.copyOnLongPress(plainGlosses(sense.glosses))
                 )
                 sense.examples.forEach { ExampleRow(it) }
             }
@@ -335,6 +338,20 @@ private fun SenseBlock(sense: Sense, startsBlock: Boolean) {
  * переводом. Уточнение (`кисть` у «рука́») и управление (`чем-л.`) идут курсивом,
  * чтобы их не читали как часть перевода.
  */
+/**
+ * Те же переводы, но голым текстом — для буфера обмена.
+ *
+ * Курсивные уточнение и управление отброшены: «рука́», а не «рука́ (кисть)».
+ * В скобках стоит пояснение к переводу, и вставлять его вместе с переводом
+ * пользователь не просил.
+ */
+private fun plainGlosses(glosses: List<Gloss>): String = buildString {
+    glosses.forEachIndexed { i, gloss ->
+        if (i > 0) append((gloss.sep ?: ",") + " ")
+        append(gloss.ru)
+    }
+}
+
 @Composable
 private fun glossesText(glosses: List<Gloss>) = buildAnnotatedString {
     val aside = SpanStyle(
@@ -346,9 +363,9 @@ private fun glossesText(glosses: List<Gloss>) = buildAnnotatedString {
         if (gloss.labels.isNotEmpty()) {
             withStyle(aside) { append(gloss.labels.joinToString(" ") + " ") }
         }
-        append(gloss.ru)
+        append(Marks.ru(gloss.ru).orEmpty())
         gloss.gov?.let { withStyle(aside) { append(" $it") } }
-        gloss.note?.let { withStyle(aside) { append(" ($it)") } }
+        gloss.note?.let { withStyle(aside) { append(" (${Marks.ru(it)})") } }
     }
 }
 
@@ -397,9 +414,11 @@ private fun FormsTable(forms: List<Form>) {
                         modifier = Modifier.weight(0.4f)
                     )
                     Text(
-                        text = form.form,
+                        text = Marks.ce(form.form),
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(0.6f)
+                        modifier = Modifier
+                            .weight(0.6f)
+                            .copyOnLongPress(form.form)
                     )
                 }
             }
@@ -420,7 +439,7 @@ private fun ExampleRow(example: Example) {
     ) {
         Text(
             text = buildAnnotatedString {
-                append(example.ceText)
+                append(Marks.ce(example.ceText))
                 // «посл.» / «погов.» — это разряд примера, а не часть текста
                 if (example.kind != null && example.kind != "phrase") {
                     withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
@@ -429,31 +448,35 @@ private fun ExampleRow(example: Example) {
                 }
             },
             style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.copyOnLongPress(example.ceText)
         )
         // У части примеров перевод разбит на подпункты: «куьг таӀо — а) …, б) …»
         if (example.subs.isNotEmpty()) {
             example.subs.forEach { sub ->
                 Text(
-                    text = listOfNotNull(sub.letter?.let { "$it)" }, sub.ru, sub.gov)
+                    text = listOfNotNull(sub.letter?.let { "$it)" }, Marks.ru(sub.ru), sub.gov)
                         .joinToString(" "),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontStyle = FontStyle.Italic
+                    fontStyle = FontStyle.Italic,
+                    modifier = Modifier.copyOnLongPress(sub.ru)
                 )
             }
         } else if (!example.ruText.isNullOrBlank()) {
             Text(
-                text = example.ruText,
+                text = Marks.ru(example.ruText).orEmpty(),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontStyle = FontStyle.Italic
+                fontStyle = FontStyle.Italic,
+                modifier = Modifier.copyOnLongPress(example.ruText)
             )
         }
         // Буквальный перевод идиомы: (букв. все, кто мо́жет владе́ть па́лкой)
         if (!example.note.isNullOrBlank()) {
             Text(
-                text = "(" + listOfNotNull(example.noteKind, example.note).joinToString(" ") + ")",
+                text = "(" + listOfNotNull(example.noteKind, Marks.ru(example.note))
+                    .joinToString(" ") + ")",
                 style = MaterialTheme.typography.labelSmall,
                 fontStyle = FontStyle.Italic,
                 color = MaterialTheme.colorScheme.secondary
@@ -476,7 +499,7 @@ private fun RefRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable {
+            .copyOnLongPress(ref.toHeadword) {
                 if (ref.toLemmaId != null) onNavigate(ref.toLemmaId)
                 else onSearch(ref.toHeadword)
             }
@@ -491,7 +514,7 @@ private fun RefRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = ref.toHeadword,
+                text = Marks.ce(ref.toHeadword),
                 style = MaterialTheme.typography.bodyMedium.copy(
                     textDecoration = if (ref.toLemmaId != null) TextDecoration.Underline else TextDecoration.None
                 ),

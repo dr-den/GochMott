@@ -453,7 +453,7 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .copyOnLongPress(hit.headword, onClick),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
@@ -464,7 +464,7 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
             Row {
                 Text(
                     modifier = Modifier.alignByBaseline(),
-                    text = hit.headword,
+                    text = Marks.ce(hit.headword),
                     style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -529,7 +529,7 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
             ) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = hit.matchedGloss,
+                    text = Marks.ru(hit.matchedGloss).orEmpty(),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.primary
@@ -547,7 +547,7 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
                                     append("${i + 1}. ")
                                 }
                             }
-                            append(gloss)
+                            append(Marks.ru(gloss).orEmpty())
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface

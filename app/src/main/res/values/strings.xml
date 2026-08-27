@@ -75,4 +75,11 @@
     <string name="privacy_contact_body">Questions about this policy:</string>
     <string name="dict_ver">Dictionary version: %1$d</string>
     <string name="feedback_subject_template">%1$s v%2$s(%3$s) [dict: %4$d]: %5$s</string>
+    <string name="copied_to_clipboard">Copied</string>
+    <string name="copy_action">Copy</string>
+    <string name="display_section">Display</string>
+    <string name="show_ce_length">Vowel length</string>
+    <string name="show_ce_length_hint">ха̃дадала instead of хададала</string>
+    <string name="show_ru_stress">Russian stress</string>
+    <string name="show_ru_stress_hint">ка́ждый раз instead of каждый раз</string>
 </resources>
