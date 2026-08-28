@@ -17,15 +17,19 @@ android {
         applicationId = "com.bilto.gochmott"
         minSdk = 26
         targetSdk = 37
-        versionCode = 9
+        versionCode = 10
         versionName = "1.0.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    val buildingBundle = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) }
+    val enableAbiSplits = !buildingBundle &&
+        ((findProperty("enableAbiSplits") as String?)?.toBoolean() ?: true)
+
     splits {
         abi {
-            isEnable = true
+            isEnable = enableAbiSplits
             reset()
             include("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
             isUniversalApk = true
