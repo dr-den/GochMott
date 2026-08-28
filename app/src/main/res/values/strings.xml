@@ -82,4 +82,7 @@
     <string name="show_ce_length_hint">ха̃дадала instead of хададала</string>
     <string name="show_ru_stress">Russian stress</string>
     <string name="show_ru_stress_hint">ка́ждый раз instead of каждый раз</string>
+    <string name="book_title">About the dictionary</string>
+    <string name="book_lang_ru">Русский</string>
+    <string name="book_lang_ce">Нохчийн</string>
 </resources>

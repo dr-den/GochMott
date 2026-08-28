@@ -82,4 +82,7 @@
     <string name="show_ce_length_hint">ха̃дадала вместо хададала</string>
     <string name="show_ru_stress">Ударения в переводах</string>
     <string name="show_ru_stress_hint">ка́ждый раз вместо каждый раз</string>
+    <string name="book_title">О словаре</string>
+    <string name="book_lang_ru">Русский</string>
+    <string name="book_lang_ce">Нохчийн</string>
 </resources>

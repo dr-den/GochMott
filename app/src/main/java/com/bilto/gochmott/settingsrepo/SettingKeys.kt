@@ -10,6 +10,13 @@ object SettingKeys {
 
     /** Ударения в русских переводах: `ка́ждый раз` против `каждый раз`. */
     val showRuStress = SettingKey.Bool("showRuStress", true)
+
+    /**
+     * Язык вводной части словаря: `RU` или `CE`. Это язык ТЕКСТА Мациева,
+     * а не интерфейса — книга напечатана на обоих, и выбор общий для всех
+     * её разделов.
+     */
+    val bookLanguage = SettingKey.Str("bookLanguage", "RU")
 }
 
 

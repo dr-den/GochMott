@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PrivacyTip
 import androidx.compose.material3.HorizontalDivider
@@ -30,6 +31,7 @@ import com.bilto.gochmott.viewmodel.DisplayPrefsViewModel
 
 @Composable
 fun AppDrawerContent(
+    onBookClick: () -> Unit,
     onAboutClick: () -> Unit,
     onPrivacyPolicyClick: () -> Unit,
     prefs: DisplayPrefsViewModel = hiltViewModel()
@@ -70,6 +72,16 @@ fun AppDrawerContent(
         HorizontalDivider(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             color = MaterialTheme.colorScheme.outlineVariant
+        )
+
+        // «О словаре» стоит выше «О приложении»: это содержимое книги, ради
+        // которой приложение и существует, а не сведения о самой программе.
+        NavigationDrawerItem(
+            label = { Text(stringResource(R.string.book_title)) },
+            icon = { Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null) },
+            selected = false,
+            onClick = onBookClick,
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
         )
 
         NavigationDrawerItem(

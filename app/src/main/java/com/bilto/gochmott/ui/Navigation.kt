@@ -22,6 +22,15 @@ sealed class Screen(val route: String) {
     object Search : Screen("search")
     object About : Screen("about")
     object PrivacyPolicy : Screen("privacy_policy")
+
+    /** Вводная часть словаря: содержание и разделы книги 1961 года. */
+    object Book : Screen("book")
+    object BookAbbreviations : Screen("book/abbreviations")
+    object BookAlphabet : Screen("book/alphabet")
+    object BookSection : Screen("book/section/{sectionId}") {
+        fun createRoute(sectionId: String) = "book/section/$sectionId"
+        const val ARG = "sectionId"
+    }
     object Detail : Screen("detail/{lemmaId}") {
         fun createRoute(lemmaId: Long) = "detail/$lemmaId"
         const val ARG = "lemmaId"
@@ -57,6 +66,10 @@ fun GochMottNavGraph(
                 drawerState = drawerState,
                 drawerContent = {
                     AppDrawerContent(
+                        onBookClick = {
+                            scope.launch { drawerState.close() }
+                            navController.navigate(Screen.Book.route)
+                        },
                         onAboutClick = {
                             scope.launch { drawerState.close() }
                             navController.navigate(Screen.About.route)
@@ -85,6 +98,31 @@ fun GochMottNavGraph(
                 onBack = { navController.popBackStack() },
                 onOpenPrivacyPolicy = { navController.navigate(Screen.PrivacyPolicy.route) }
             )
+        }
+
+        composable(Screen.Book.route) {
+            BookHubScreen(
+                onOpenSection = { id -> navController.navigate(Screen.BookSection.createRoute(id)) },
+                onOpenAbbreviations = { navController.navigate(Screen.BookAbbreviations.route) },
+                onOpenAlphabet = { navController.navigate(Screen.BookAlphabet.route) },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Screen.BookSection.route,
+            arguments = listOf(navArgument(Screen.BookSection.ARG) { type = NavType.StringType })
+        ) { backStackEntry ->
+            val id = backStackEntry.arguments?.getString(Screen.BookSection.ARG) ?: return@composable
+            BookSectionScreen(sectionId = id, onBack = { navController.popBackStack() })
+        }
+
+        composable(Screen.BookAbbreviations.route) {
+            AbbreviationsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Screen.BookAlphabet.route) {
+            AlphabetScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Screen.PrivacyPolicy.route) {
