@@ -31,13 +31,20 @@ jobs:
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore.jks
 
-      - name: Build and Sign Release APKs
+      - name: Build and Sign Release APKs + AAB
         run: |
-          ./gradlew assembleRelease \
+          ./gradlew assembleRelease bundleRelease \
             -Pandroid.injected.signing.store.file=$(pwd)/keystore.jks \
             -Pandroid.injected.signing.store.password=${{ secrets.STORE_PASSWORD }} \
             -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
             -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
+
+      - name: Rename AAB
+        run: |
+          VERSION_NAME=$(grep -Po 'versionName = "\K[^"]+' app/build.gradle.kts)
+          VERSION_CODE=$(grep -Po 'versionCode = \K\d+' app/build.gradle.kts)
+          mv app/build/outputs/bundle/release/app-release.aab \
+             "app/build/outputs/bundle/release/GochMott-v${VERSION_NAME}(${VERSION_CODE})-release.aab"
 
       - name: Create GitHub Release
         env:
@@ -46,8 +53,8 @@ jobs:
             # Проверяем, начинается ли тег с 'b' (например, b6)
             if [[ "${{ github.ref }}" == refs/tags/b* ]]; then
               # Создаем Pre-release
-              gh release create ${{ github.ref_name }} app/build/outputs/apk/release/*.apk --generate-notes --prerelease
+              gh release create ${{ github.ref_name }} app/build/outputs/apk/release/*.apk app/build/outputs/bundle/release/*.aab --generate-notes --prerelease
             else
               # Создаем обычный стабильный релиз (Latest)
-              gh release create ${{ github.ref_name }} app/build/outputs/apk/release/*.apk --generate-notes
+              gh release create ${{ github.ref_name }} app/build/outputs/apk/release/*.apk app/build/outputs/bundle/release/*.aab --generate-notes
             fi
