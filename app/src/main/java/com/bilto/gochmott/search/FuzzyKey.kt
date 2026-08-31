@@ -29,7 +29,7 @@ object FuzzyKey {
     /**
      * Безударные гласные, которые в русском путают чаще всего: «малако» вместо «молоко»,
      * «сабака» вместо «собака», «висна» вместо «весна». Плюс ё→е, как в ключах БД.
-     * Скелет участвует ТОЛЬКО в подсказках — точный поиск идёт по `ru_index.word`,
+     * Скелет участвует ТОЛЬКО в подсказках — точный поиск идёт по `trans_index.word`,
      * поэтому склейка «мал»/«мол» на точность выдачи не влияет.
      */
     private val RU_FOLD: Map<Char, Char> = mapOf(
@@ -40,8 +40,9 @@ object FuzzyKey {
     fun chechen(input: String?): String = fold(ChechenNormalizer.normalize(input), CE_FOLD)
 
     /**
-     * То же для строк, уже прошедших [ChechenNormalizer] (колонки `*_norm` в БД):
-     * пропускает повторную нормализацию — важно при построении индекса по 20 тыс. статей.
+     * То же для строк, уже прошедших [ChechenNormalizer] (колонки `*_norm` в БД и слова
+     * `trans_index.word` у `lang='ce'`): пропускает повторную нормализацию — важно
+     * при построении индекса по 20 тыс. статей.
      */
     fun chechenFromNormalized(norm: String?): String =
         if (norm.isNullOrEmpty()) "" else fold(norm, CE_FOLD)

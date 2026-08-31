@@ -48,9 +48,12 @@ data class Form(
  * Один перевод внутри значения. У значения их бывает несколько:
  * «ослабле́ние; утомле́ние» — два глосса, [sep] хранит разделитель ПЕРЕД глоссом
  * (`,` — синонимы, `;` — более далёкий перевод).
+ *
+ * [text] назван по роли, а не по языку: у словаря чеч→рус это русский перевод,
+ * у словаря рус→чеч — чеченский (в базе колонка тоже переименована `ru` → `text`).
  */
 data class Gloss(
-    val ru: String,
+    val text: String,
     val sep: String?,
     /** Уточнение в скобках: у «рука́» — «кисть». */
     val note: String?,
@@ -75,7 +78,8 @@ data class Sense(
 /** Подпункт примера: «куьг таӀо — а) кри́кнуть б) окли́кнуть». */
 data class Sub(
     val letter: String?,
-    val ru: String,
+    /** Перевод подпункта; язык — сторона перевода словаря, см. [Gloss.text]. */
+    val text: String,
     val note: String?,
     val gov: String?
 )
@@ -104,13 +108,44 @@ data class Ref(
     val toLemmaId: Long?
 )
 
+/**
+ * Паспорт словаря, из которого взята статья (`dicts`). [citation] уже готов к показу
+ * и к «поделиться» — собран сборщиком, склеивать его в UI не нужно.
+ */
+data class DictSource(
+    val code: String,
+    val title: String,
+    val authors: String,
+    val year: Int?,
+    val citation: String
+)
+
+/**
+ * То же слово в другой книге (`lemma_links`). Поля книг НЕ сливаются: связь говорит
+ * лишь «это одно слово». [conflict] — список полей, в которых книги расходятся
+ * (класс, часть речи); непустой список это не ошибка, а разночтение источников.
+ */
+data class LinkedEntry(
+    val lemmaId: Long,
+    val headword: String,
+    val homographN: Int,
+    val dictTitle: String,
+    val method: String,
+    val confidence: Double,
+    val conflict: List<String>
+)
+
 data class EntryDetail(
     val lemma: LemmaHit,
     val forms: List<Form>,
     val senses: List<Sense>,
     /** Идиомы за ромбом «◊» — они относятся к статье целиком, а не к значению. */
     val idioms: List<Example>,
-    val refs: List<Ref>
+    val refs: List<Ref>,
+    /** Откуда статья. null — только если паспорт словаря не прочитался. */
+    val source: DictSource? = null,
+    /** Это же слово в других книгах; пусто, пока словарь в базе один. */
+    val related: List<LinkedEntry> = emptyList()
 )
 
 enum class SearchDirection {

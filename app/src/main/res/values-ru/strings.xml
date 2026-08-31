@@ -85,4 +85,7 @@
     <string name="book_title">О словаре</string>
     <string name="book_lang_ru">Русский</string>
     <string name="book_lang_ce">Нохчийн</string>
+    <string name="other_books">В других словарях</string>
+    <string name="link_conflict">книги расходятся: %1$s</string>
+    <string name="source">Источник</string>
 </resources>

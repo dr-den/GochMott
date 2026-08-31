@@ -4,7 +4,7 @@ import org.tartarus.snowball.ext.RussianStemmer
 
 /**
  * Стемминг РУССКОГО запроса для поиска рус→чеч. Должен давать ТУ ЖЕ основу, что и
- * lemmatize_ru.py при сборке БД (там snowballstemmer). Класс russianStemmer —
+ * `ru_stem` в `tools/build_app_db_v4.py` (порт того же Snowball). Класс russianStemmer —
  * это Snowball Russian, сгенерированный из того же исходника, поэтому вывод
  * совпадает символ-в-символ с Python `snowballstemmer.stemmer("russian")`.
  *
@@ -21,7 +21,7 @@ object RuStem {
 
     private val stemmer = RussianStemmer()
 
-    /** Готовит слово запроса к сравнению с ru_index.stem. */
+    /** Готовит слово запроса к сравнению с `trans_index.stem` при `lang='ru'`. */
     @Synchronized
     fun stem(word: String): String {
         val w = word.lowercase().replace('ё', 'е').trim()

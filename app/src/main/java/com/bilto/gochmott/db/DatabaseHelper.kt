@@ -23,7 +23,7 @@ import javax.inject.Singleton
  * история), перезапись станет опасной — тогда их надо вынести в отдельный файл.
  *
  * Раньше копирование шло только «если файла нет», и после обновления приложения на
- * устройстве оставалась старая БД: запрос к `ru_index.lemma_id` падал с «no such column».
+ * устройстве оставалась старая БД: запрос к `trans_index` падал с «no such table».
  * Теперь версия локальной копии сверяется с [EXPECTED_DB_VERSION] при каждом открытии.
  */
 @Singleton
@@ -41,7 +41,7 @@ class DatabaseHelper @Inject constructor(
          * при каждой пересборке БД поднимайте оба числа, иначе на устройствах со старой
          * копией она не обновится.
          */
-        const val EXPECTED_DB_VERSION = 3
+        const val EXPECTED_DB_VERSION = 4
 
         /** Файлы SQLite рядом с БД: от прежней копии к новой они не относятся. */
         private val SIDECAR_SUFFIXES = listOf("-journal", "-wal", "-shm")

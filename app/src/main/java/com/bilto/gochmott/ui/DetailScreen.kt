@@ -46,9 +46,11 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bilto.gochmott.R
+import com.bilto.gochmott.model.DictSource
 import com.bilto.gochmott.model.EntryDetail
 import com.bilto.gochmott.model.Example
 import com.bilto.gochmott.model.Gloss
+import com.bilto.gochmott.model.LinkedEntry
 import com.bilto.gochmott.model.Form
 import com.bilto.gochmott.model.Ref
 import com.bilto.gochmott.model.Sense
@@ -266,7 +268,91 @@ private fun DetailContent(
             }
         }
 
+        // Это же слово в других книгах (`lemma_links`). Пока словарь один — пусто.
+        if (detail.related.isNotEmpty()) {
+            item { SectionLabel(stringResource(R.string.other_books)) }
+            items(detail.related) { link ->
+                LinkedEntryRow(link = link, onNavigate = onNavigateToDetail)
+            }
+        }
+
+        // Откуда статья. Готовую строку даёт паспорт словаря (`dicts.citation`) —
+        // склеивать её в UI не нужно.
+        detail.source?.let { source ->
+            item { SourceLine(source) }
+        }
+
         item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+/**
+ * Та же лемма в другой книге. Поля книг не сливаются: если `conflict` непуст,
+ * книги расходятся в классе или части речи — это разночтение источников, а не
+ * ошибка, поэтому обе статьи показываются рядом, без «победителя».
+ */
+@Composable
+private fun LinkedEntryRow(link: LinkedEntry, onNavigate: (Long) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onNavigate(link.lemmaId) }
+            .padding(vertical = 4.dp)
+    ) {
+        Text(
+            text = buildAnnotatedString {
+                withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) {
+                    append(Marks.ce(link.headword))
+                }
+                if (link.homographN > 0) {
+                    withStyle(
+                        SpanStyle(
+                            fontSize = 10.sp,
+                            baselineShift = androidx.compose.ui.text.style.BaselineShift.Superscript,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    ) { append("${link.homographN}") }
+                }
+                append("  ")
+                withStyle(
+                    SpanStyle(
+                        fontStyle = FontStyle.Italic,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                ) { append(link.dictTitle) }
+            },
+            style = MaterialTheme.typography.bodyMedium
+        )
+        if (link.conflict.isNotEmpty()) {
+            Text(
+                text = stringResource(R.string.link_conflict, link.conflict.joinToString(", ")),
+                style = MaterialTheme.typography.labelSmall,
+                fontStyle = FontStyle.Italic,
+                color = MaterialTheme.colorScheme.tertiary
+            )
+        }
+    }
+}
+
+/** Подпись под статьёй: из какой книги она взята. */
+@Composable
+private fun SourceLine(source: DictSource) {
+    Column(modifier = Modifier.padding(top = 8.dp)) {
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant,
+            thickness = 0.5.dp
+        )
+        Text(
+            text = source.citation.ifBlank {
+                listOfNotNull(source.authors, source.title, source.year?.toString())
+                    .joinToString(". ")
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .padding(top = 6.dp)
+                .copyOnLongPress(source.citation)
+        )
     }
 }
 
@@ -348,7 +434,7 @@ private fun SenseBlock(sense: Sense, startsBlock: Boolean) {
 private fun plainGlosses(glosses: List<Gloss>): String = buildString {
     glosses.forEachIndexed { i, gloss ->
         if (i > 0) append((gloss.sep ?: ",") + " ")
-        append(gloss.ru)
+        append(gloss.text)
     }
 }
 
@@ -363,7 +449,7 @@ private fun glossesText(glosses: List<Gloss>) = buildAnnotatedString {
         if (gloss.labels.isNotEmpty()) {
             withStyle(aside) { append(gloss.labels.joinToString(" ") + " ") }
         }
-        append(Marks.ru(gloss.ru).orEmpty())
+        append(Marks.ru(gloss.text).orEmpty())
         gloss.gov?.let { withStyle(aside) { append(" $it") } }
         gloss.note?.let { withStyle(aside) { append(" (${Marks.ru(it)})") } }
     }
@@ -455,12 +541,12 @@ private fun ExampleRow(example: Example) {
         if (example.subs.isNotEmpty()) {
             example.subs.forEach { sub ->
                 Text(
-                    text = listOfNotNull(sub.letter?.let { "$it)" }, Marks.ru(sub.ru), sub.gov)
+                    text = listOfNotNull(sub.letter?.let { "$it)" }, Marks.ru(sub.text), sub.gov)
                         .joinToString(" "),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontStyle = FontStyle.Italic,
-                    modifier = Modifier.copyOnLongPress(sub.ru)
+                    modifier = Modifier.copyOnLongPress(sub.text)
                 )
             }
         } else if (!example.ruText.isNullOrBlank()) {

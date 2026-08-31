@@ -85,4 +85,7 @@
     <string name="book_title">About the dictionary</string>
     <string name="book_lang_ru">Русский</string>
     <string name="book_lang_ce">Нохчийн</string>
+    <string name="other_books">In other dictionaries</string>
+    <string name="link_conflict">dictionaries differ: %1$s</string>
+    <string name="source">Source</string>
 </resources>
