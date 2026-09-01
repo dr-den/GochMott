@@ -95,4 +95,10 @@
     <string name="link_reviewed">сверено вручную</string>
     <string name="book_entries">статей: %1$d</string>
     <string name="book_note_title">О тексте в приложении</string>
+    <string name="usage_badge">в переводах</string>
+    <string name="usage_more">употреблений: %1$d</string>
+    <string name="usages_title">В переводах</string>
+    <string name="usages_no_entry">Своей статьи у этого слова нет. Ниже — места, где оно встречается в словарях рус→чеч.</string>
+    <string name="usages_as_gloss">Как перевод</string>
+    <string name="usages_in_phrases">В словосочетаниях</string>
 </resources>

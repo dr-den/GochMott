@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedFilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -61,8 +62,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bilto.gochmott.R
 import com.bilto.gochmott.capitalizeFirst
+import com.bilto.gochmott.model.Lang
 import com.bilto.gochmott.model.LemmaHit
 import com.bilto.gochmott.model.SearchDirection
+import com.bilto.gochmott.model.UsageEntry
 import com.bilto.gochmott.viewmodel.SearchIntent
 import com.bilto.gochmott.viewmodel.SearchViewModel
 
@@ -71,6 +74,7 @@ import com.bilto.gochmott.viewmodel.SearchViewModel
 fun SearchScreen(
     viewModel: SearchViewModel = hiltViewModel(),
     onNavigateToDetail: (Long) -> Unit,
+    onNavigateToUsages: (String) -> Unit = {},
     onOpenDrawer: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -79,6 +83,11 @@ fun SearchScreen(
     val openDetail: (Long) -> Unit = { lemmaId ->
         viewModel.onIntent(SearchIntent.QuerySubmitted)
         onNavigateToDetail(lemmaId)
+    }
+
+    val openUsages: (String) -> Unit = { word ->
+        viewModel.onIntent(SearchIntent.QuerySubmitted)
+        onNavigateToUsages(word)
     }
 
     Scaffold(
@@ -272,6 +281,14 @@ fun SearchScreen(
                                 }
                             }
 
+                            // 1б. ЧЕ→РУ: слово без своей статьи, но живущее в переводах
+                            // книг рус→чеч. Заголовок чеченский — как его и искали.
+                            state.usage?.let { usage ->
+                                item(key = "usage_${usage.key}") {
+                                    UsageCard(usage = usage, onClick = { openUsages(usage.key) })
+                                }
+                            }
+
                             // 2а. РУ→ЧЕ: похожие русские слова вместо статей — сначала
                             if (state.suggestions.isNotEmpty()) {
                                 item(key = "suggestions") {
@@ -447,6 +464,69 @@ private fun SuggestionsBlock(
         }
     }
 }
+
+/**
+ * Слово, у которого нет своей статьи.
+ *
+ * Заголовок чеченский — иначе выдача «чеченский → русский» превращается в список
+ * русских слов. Но карточка намеренно не похожа на статью: у неё рамка вместо
+ * заливки и подпись «встречается в переводах», потому что за ней не статья из
+ * книги, а список мест, где слово стоит.
+ */
+@Composable
+private fun UsageCard(usage: UsageEntry, onClick: () -> Unit) {
+    OutlinedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .copyOnLongPress(usage.word, onClick),
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row {
+                Text(
+                    modifier = Modifier.alignByBaseline(),
+                    text = Marks.forLang(Lang.CE, usage.word).orEmpty(),
+                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    modifier = Modifier.alignByBaseline(),
+                    text = stringResource(R.string.usage_badge),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.tertiary
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            // Превью: перевод сильнее словосочетания, поэтому глоссы идут первыми.
+            val preview = (usage.asGloss + usage.inPhrases).take(USAGE_PREVIEW)
+            preview.forEach { u ->
+                Text(
+                    text = if (u.isGloss) {
+                        Marks.forLang(Lang.RU, u.ruHeadword).orEmpty()
+                    } else {
+                        Marks.forLang(Lang.RU, u.phraseRu).orEmpty()
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            if (usage.usages.size > preview.size) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = stringResource(R.string.usage_more, usage.usages.size),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+private const val USAGE_PREVIEW = 2
 
 @Composable
 private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {

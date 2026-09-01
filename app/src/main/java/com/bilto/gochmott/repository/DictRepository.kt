@@ -14,6 +14,8 @@ import com.bilto.gochmott.model.LinkedEntry
 import com.bilto.gochmott.model.Ref
 import com.bilto.gochmott.model.Sense
 import com.bilto.gochmott.model.Sub
+import com.bilto.gochmott.model.Usage
+import com.bilto.gochmott.model.UsageEntry
 import com.bilto.gochmott.search.ChechenNormalizer
 import com.bilto.gochmott.search.FuzzyKey
 import com.bilto.gochmott.search.RuNormalizer
@@ -45,6 +47,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         const val FUZZY_LIMIT = 30         // сколько «похожих» чеченских статей отдаём в UI
         const val RU_SUGGESTION_LIMIT = 10 // сколько похожих русских слов предлагаем
         const val HITS_LIMIT = 100         // потолок статей на один поисковый слой
+        const val USAGE_LIMIT = 200        // потолок употреблений слова без своей статьи
 
         const val CE = Lang.CE
         const val RU = Lang.RU
@@ -221,6 +224,97 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         """.trimIndent()
         return dbHelper.database.rawQuery(sql, (distinct + lang).toTypedArray())
             .use { buildHits(it) }
+    }
+
+
+    /**
+     * Чеченское слово, у которого нет своей статьи, — где оно встречается.
+     *
+     * Дополняет [searchChechen] ровно там, где тот пуст. 2 212 чеченских слов
+     * стоят в базе только внутри переводов словарей рус→чеч и заголовком нигде не
+     * значатся: 446 из них — настоящий перевод русской статьи (`да́нные` = `хаамаш`),
+     * остальные 1 766 живут внутри словосочетаний (`координатийн куп` —
+     * «координатная окрестность»). Это в основном словоформы и определения,
+     * у которых своей статьи и не должно быть.
+     *
+     * Показывать их РУССКИМИ заголовками нельзя — выдача «чеченский → русский»
+     * превращается в список русских слов. Поэтому наружу отдаётся чеченское слово,
+     * а русские статьи становятся его употреблениями (см. `UsagesScreen`).
+     *
+     * Запрос по индексу `(word, lang)`; идёт только на промахе и только на
+     * однословном вводе — в `trans_index` лежат отдельные слова.
+     */
+    suspend fun chechenUsages(input: String): UsageEntry? = withContext(Dispatchers.IO) {
+        val key = ChechenNormalizer.normalize(input)
+        if (key.length < MIN_FUZZY_LEN || key.contains(' ')) return@withContext null
+
+        // target_id указывает в glosses ЛИБО в examples — таблицы разные, а id у них
+        // независимые и пересекаются. Поэтому джойн разводится по `src`, иначе
+        // словосочетание подхватит чужой глосс с тем же номером.
+        val sql = """
+            SELECT t.src, l.id, l.headword, d.book AS dict_book, d.year AS dict_year,
+                   g.text AS gloss, e.ce AS phrase_ce, e.ru AS phrase_ru
+            FROM trans_index t
+            JOIN lemmas l        ON l.id = t.lemma_id
+            JOIN dicts  d        ON d.id = t.dict_id
+            LEFT JOIN glosses  g ON g.id = t.target_id AND t.src IN (0, 3)
+            LEFT JOIN examples e ON e.id = t.target_id AND t.src IN (1, 2)
+            WHERE t.word = ? AND t.lang = ?
+            ORDER BY t.src, d.priority, l.ordering
+            LIMIT $USAGE_LIMIT
+        """.trimIndent()
+
+        val usages = dbHelper.database.rawQuery(sql, arrayOf(key, CE)).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(Usage(
+                        src = cursor.getInt(0),
+                        lemmaId = cursor.getLong(1),
+                        ruHeadword = cursor.getString(2) ?: "",
+                        dictBook = cursor.getString(3) ?: "",
+                        dictYear = if (cursor.isNull(4)) null else cursor.getInt(4),
+                        gloss = cursor.getStringOrNull(5),
+                        phraseCe = cursor.getStringOrNull(6),
+                        phraseRu = cursor.getStringOrNull(7)
+                    ))
+                }
+            }
+        }
+        if (usages.isEmpty()) null
+        else UsageEntry(word = displayForm(key, usages), key = key, usages = usages)
+    }
+
+    /**
+     * Написание слова со знаками долготы.
+     *
+     * В `trans_index.word` ключи очищены, а показывать надо как в книге — `ма̃ша`,
+     * а не `маша`. Восстанавливаем из того же текста, откуда ключ и взят: ищем
+     * в переводе или словосочетании токен, чья нормализация совпала с ключом.
+     * Не нашли — показываем ключ: хуже, но не враньё.
+     */
+    private fun displayForm(key: String, usages: List<Usage>): String {
+        for (usage in usages) {
+            val source = if (usage.isGloss) usage.gloss else usage.phraseCe
+            for (token in tokens(source.orEmpty())) {
+                if (ChechenNormalizer.normalize(token) == key) return token
+            }
+        }
+        return key
+    }
+
+    /** Слова строки вместе с надстрочными знаками; знаки — часть слова, не разделитель. */
+    private fun tokens(text: String): List<String> {
+        val out = ArrayList<String>()
+        val word = StringBuilder()
+        for (ch in text) {
+            if (ch.isLetter() || ch.category == CharCategory.NON_SPACING_MARK) {
+                word.append(ch)
+            } else if (word.isNotEmpty()) {
+                out.add(word.toString()); word.clear()
+            }
+        }
+        if (word.isNotEmpty()) out.add(word.toString())
+        return out
     }
 
     // Path C: примерный поиск чеч→рус. Идёт ВСЕГДА, параллельно точному, — потому что

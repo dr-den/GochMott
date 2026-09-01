@@ -95,4 +95,10 @@
     <string name="link_reviewed">checked by hand</string>
     <string name="book_entries">%1$d entries</string>
     <string name="book_note_title">A note on the text in the app</string>
+    <string name="usage_badge">in translations</string>
+    <string name="usage_more">%1$d usages</string>
+    <string name="usages_title">In translations</string>
+    <string name="usages_no_entry">This word has no entry of its own. Below are the places where it appears in the Russian→Chechen dictionaries.</string>
+    <string name="usages_as_gloss">As a translation</string>
+    <string name="usages_in_phrases">In phrases</string>
 </resources>

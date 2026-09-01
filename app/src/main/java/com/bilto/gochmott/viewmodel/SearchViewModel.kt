@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.bilto.gochmott.db.DatabaseHelper
 import com.bilto.gochmott.model.LemmaHit
 import com.bilto.gochmott.model.SearchDirection
+import com.bilto.gochmott.model.UsageEntry
 import com.bilto.gochmott.repository.DictRepository
 import com.bilto.gochmott.repository.SearchHistoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -32,6 +33,11 @@ data class SearchState(
     val fuzzyResults: List<LemmaHit> = emptyList(),
     /** РУ→ЧЕ: похожие русские слова. Только когда точного слова в словаре нет. */
     val suggestions: List<String> = emptyList(),
+    /**
+     * ЧЕ→РУ: слово без своей статьи, встречающееся внутри переводов книг рус→чеч.
+     * Показывается заголовком, открывается списком употреблений, а не карточкой.
+     */
+    val usage: UsageEntry? = null,
     val isFuzzyLoading: Boolean = false,
     val history: List<String> = emptyList(),
     val dbReady: Boolean = false,
@@ -40,7 +46,7 @@ data class SearchState(
     val hasExact: Boolean get() = exactResults.isNotEmpty()
     val hasNoResults: Boolean
         get() = exactResults.isEmpty() && fuzzyResults.isEmpty() &&
-                suggestions.isEmpty() && !isFuzzyLoading
+                suggestions.isEmpty() && usage == null && !isFuzzyLoading
 }
 
 sealed class SearchIntent {
@@ -166,6 +172,7 @@ class SearchViewModel @Inject constructor(
         exactResults = emptyList(),
         fuzzyResults = emptyList(),
         suggestions = emptyList(),
+        usage = null,
         isLoading = false,
         isFuzzyLoading = false
     )
@@ -182,7 +189,7 @@ class SearchViewModel @Inject constructor(
             _state.update {
                 it.copy(
                     isLoading = true, isFuzzyLoading = true,
-                    fuzzyResults = emptyList(), suggestions = emptyList()
+                    fuzzyResults = emptyList(), suggestions = emptyList(), usage = null
                 )
             }
 
@@ -197,6 +204,14 @@ class SearchViewModel @Inject constructor(
 
             when {
                 direction == SearchDirection.CE_TO_RU -> {
+                    // Своей статьи у слова может не быть, а внутри переводов книг
+                    // рус→чеч оно стоять может. Спрашиваем только на промахе: когда
+                    // статья нашлась, она и есть ответ, а употребления — шум.
+                    if (exact.isEmpty()) {
+                        val usage = repository.chechenUsages(query)
+                        ensureActive()
+                        _state.update { it.copy(usage = usage) }
+                    }
                     val fuzzy = repository.enrichHits(
                         repository.searchChechenFuzzy(query, exact.mapTo(HashSet()) { it.id })
                     )

@@ -186,6 +186,47 @@ data class EntryDetail(
     val related: List<LinkedEntry> = emptyList()
 )
 
+/**
+ * Одно употребление чеченского слова в словаре рус→чеч.
+ *
+ * Это НЕ статья: у слова `координатийн` своей статьи нет ни в одной книге, оно
+ * встречается только внутри чужих переводов. [lemmaId] ведёт в ту русскую статью,
+ * где оно найдено.
+ */
+data class Usage(
+    /** 0 и 3 — слово стоит переводом статьи, 1 и 2 — внутри словосочетания. */
+    val src: Int,
+    val lemmaId: Long,
+    /** Заголовок русской статьи, в которой нашлось слово. */
+    val ruHeadword: String,
+    val dictBook: String,
+    val dictYear: Int?,
+    /** Перевод статьи целиком — заполнен при [isGloss]. */
+    val gloss: String?,
+    /** Чеченское словосочетание и его русская сторона — при `src` 1 и 2. */
+    val phraseCe: String?,
+    val phraseRu: String?
+) {
+    val isGloss: Boolean get() = src == 0 || src == 3
+}
+
+/**
+ * Чеченское слово, у которого нет своей статьи, но которое встречается в переводах.
+ *
+ * Показывается заголовком — так его и ищут, — но открывается не карточкой статьи,
+ * а списком употреблений: статьи-то нет, а есть места, где слово стоит.
+ */
+data class UsageEntry(
+    /** Написание со знаками долготы, как в книге; ключ, если восстановить не вышло. */
+    val word: String,
+    /** Нормализованный ключ — он же аргумент маршрута. */
+    val key: String,
+    val usages: List<Usage>
+) {
+    val asGloss: List<Usage> get() = usages.filter { it.isGloss }
+    val inPhrases: List<Usage> get() = usages.filterNot { it.isGloss }
+}
+
 enum class SearchDirection {
     CE_TO_RU, RU_TO_CE;
 

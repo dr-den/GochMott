@@ -13,11 +13,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.bilto.gochmott.model.SearchDirection
+import android.net.Uri
 import androidx.navigation.NavBackStackEntry
 import com.bilto.gochmott.viewmodel.AboutViewModel
 import com.bilto.gochmott.viewmodel.BookViewModel
 import com.bilto.gochmott.viewmodel.PrivacyPolicyViewModel
 import com.bilto.gochmott.viewmodel.SearchViewModel
+import com.bilto.gochmott.viewmodel.UsagesViewModel
 import kotlinx.coroutines.launch
 
 sealed class Screen(val route: String) {
@@ -43,6 +45,15 @@ sealed class Screen(val route: String) {
     object BookSection : Screen("book/{bookCode}/section/{sectionId}") {
         fun createRoute(bookCode: String, sectionId: String) = "book/$bookCode/section/$sectionId"
         const val ARG = "sectionId"
+    }
+    /**
+     * Употребления чеченского слова, у которого нет своей статьи. В маршруте лежит
+     * НОРМАЛИЗОВАННЫЙ ключ (`trans_index.word`), а не то, что набрал пользователь:
+     * по нему построен индекс, и экран ищет ровно им. Слово кодируется — в нём
+     * кириллица и палочка.
+     */
+    object Usages : Screen("usages/{word}") {
+        fun createRoute(word: String) = "usages/" + Uri.encode(word)
     }
     object Detail : Screen("detail/{lemmaId}") {
         fun createRoute(lemmaId: Long) = "detail/$lemmaId"
@@ -106,6 +117,9 @@ fun GochMottNavGraph(
                     onNavigateToDetail = { lemmaId ->
                         navController.navigate(Screen.Detail.createRoute(lemmaId))
                     },
+                    onNavigateToUsages = { word ->
+                        navController.navigate(Screen.Usages.createRoute(word))
+                    },
                     onOpenDrawer = { scope.launch { drawerState.open() } }
                 )
             }
@@ -166,6 +180,16 @@ fun GochMottNavGraph(
             val viewModel: PrivacyPolicyViewModel = hiltViewModel()
 
             PrivacyPolicyScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
+        }
+
+        composable(
+            route = Screen.Usages.route,
+            arguments = listOf(navArgument(UsagesViewModel.WORD_ARG) { type = NavType.StringType })
+        ) {
+            UsagesScreen(
+                onBack = { navController.popBackStack() },
+                onNavigateToDetail = { id -> navController.navigate(Screen.Detail.createRoute(id)) }
+            )
         }
 
         composable(
