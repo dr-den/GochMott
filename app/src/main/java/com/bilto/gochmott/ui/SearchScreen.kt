@@ -652,7 +652,9 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
                 // Из какой книги статья. Один запрос отдаёт статьи из нескольких
                 // словарей сразу, и без подписи выдача выглядит как список повторов.
                 Spacer(Modifier.weight(1f))
-                DictBadgeChip(hit.dictBook, hit.dictYear, Modifier.alignByBaseline())
+                DictBadgeChip(
+                    hit.dictBook, hit.dictYear, Modifier.alignByBaseline(), hit.alsoIn.size
+                )
             }
 
             // Gram classes

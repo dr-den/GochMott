@@ -32,8 +32,12 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -50,6 +54,7 @@ import com.bilto.gochmott.R
 import com.bilto.gochmott.model.DictSource
 import com.bilto.gochmott.model.EntryDetail
 import com.bilto.gochmott.model.Example
+import com.bilto.gochmott.model.ClassNote
 import com.bilto.gochmott.model.Gloss
 import com.bilto.gochmott.model.Lang
 import com.bilto.gochmott.model.LinkedEntry
@@ -187,14 +192,27 @@ private fun DetailContent(
                         )
                     }
                 }
-                // Gram classes
-                if (lemma.classes.isNotEmpty()) {
+                // Классы. Показываем и когда своих нет: у Мациева `агӀо` без класса,
+                // а младшие книги его проставили — терять это молча незачем.
+                if (lemma.classes.isNotEmpty() || detail.classNotes.isNotEmpty()) {
                     val sg = lemma.classes.filter { it.number == "sg" }.map { it.marker }
                     val pl = lemma.classes.filter { it.number == "pl" }.map { it.marker }
+                    // Строки помет считаем ДО buildString: внутри его лямбды
+                    // composable-вызовов быть не может.
+                    val notes = detail.classNotes.map { classNoteText(it) }
+                    val hasOwn = sg.isNotEmpty() || pl.isNotEmpty()
                     val classStr = buildString {
                         if (sg.isNotEmpty()) append(stringResource(R.string.sg_forms, ClassMarker.list(sg)))
                         if (sg.isNotEmpty() && pl.isNotEmpty()) append("  ")
                         if (pl.isNotEmpty()) append(stringResource(R.string.pl_forms, ClassMarker.list(pl)))
+                        // «ед[бу] мн[ду] (мн[бу] в Математика, 1997)»: у эталона свой
+                        // показатель, у младшей книги другой. Победителя не выбираем —
+                        // показываем оба с источником. Скобки нужны, только если есть
+                        // к чему их приписать: без своих классов помета сама себе строка.
+                        notes.forEachIndexed { i, note ->
+                            if (hasOwn) append("  (").append(note).append(")")
+                            else append(if (i == 0) "" else "  ").append(note)
+                        }
                     }
                     Text(
                         text = classStr,
@@ -432,6 +450,17 @@ private fun SenseBlock(sense: Sense, startsBlock: Boolean, lang: String) {
                 modifier = Modifier.width(24.dp)
             )
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                // Значение, которого у эталона нет: у `хьаьрк` это «цифра» из книг
+                // 1997 и 2017. Плашка говорит чьё — иначе выглядит как значение
+                // Мациева, которого он не давал. Книг может быть несколько: одно
+                // значение, два источника.
+                if (sense.fromBooks.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        sense.fromBooks.forEach { book ->
+                            DictBadgeChip(book.dictBook, book.dictYear)
+                        }
+                    }
+                }
                 if (sense.labels.isNotEmpty()) {
                     Text(
                         text = sense.labels.joinToString(" "),
@@ -445,7 +474,25 @@ private fun SenseBlock(sense: Sense, startsBlock: Boolean, lang: String) {
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.copyOnLongPress(plainGlosses(sense.glosses))
                 )
-                sense.examples.forEach { ExampleRow(it, lang) }
+                // Слитая статья набирает до трёх десятков примеров — столько
+                // разом не читают. Показываем первые, остальные по требованию.
+                var expanded by remember(sense.id) { mutableStateOf(false) }
+                val visible =
+                    if (expanded || sense.examples.size <= EXAMPLES_COLLAPSED) sense.examples
+                    else sense.examples.take(EXAMPLES_COLLAPSED)
+                visible.forEach { ExampleRow(it, lang) }
+                if (sense.examples.size > EXAMPLES_COLLAPSED) {
+                    val hidden = sense.examples.size - EXAMPLES_COLLAPSED
+                    Text(
+                        text = if (expanded) stringResource(R.string.examples_less)
+                        else pluralStringResource(R.plurals.examples_more, hidden, hidden),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clickable { expanded = !expanded }
+                            .padding(vertical = 4.dp)
+                    )
+                }
             }
         }
     }
@@ -470,6 +517,40 @@ private fun plainGlosses(glosses: List<Gloss>): String = buildString {
         if (i > 0) append((gloss.sep ?: ",") + " ")
         append(gloss.text)
     }
+}
+
+/**
+ * «(мн[бу] — Математика, 1997)» — чем книга-двойник расходится с эталоном.
+ *
+ * Эталон — книга с наименьшим `dicts.priority`, то есть Мациев. Расхождений таких
+ * 29 связей из 812, поэтому помета стоит прямо в строке классов: отдельная секция
+ * ради одной статьи из тысячи была бы дороже, чем польза от неё.
+ */
+@Composable
+private fun classNoteText(note: ClassNote): String {
+    // Обычные циклы, а не map/joinToString: их лямбды не inline-composable,
+    // и вызвать stringResource внутри них нельзя.
+    val parts = ArrayList<String>(note.differences.size)
+    for (difference in note.differences) {
+        parts.add(
+            stringResource(
+                if (difference.number == "sg") R.string.sg_forms else R.string.pl_forms,
+                ClassMarker.list(difference.markers)
+            )
+        )
+    }
+    val labels = ArrayList<String>(note.books.size)
+    for (book in note.books) labels.add(DictBadge.label(book.dictBook, book.dictYear))
+    return stringResource(R.string.class_note, parts.joinToString(" "), joinWithAnd(labels))
+}
+
+/** «Математика, 1997 и Компьютер, 2017» — последнюю книгу присоединяем союзом. */
+@Composable
+private fun joinWithAnd(items: List<String>): String = when (items.size) {
+    0 -> ""
+    1 -> items.first()
+    else -> items.dropLast(1).joinToString(", ") +
+        " " + stringResource(R.string.list_and) + " " + items.last()
 }
 
 /**
@@ -578,6 +659,10 @@ private fun ExampleRow(example: Example, lang: String) {
             )
             .padding(8.dp)
     ) {
+        // Плашка книги прижата вправо, а не поставлена над текстом: пример читают
+        // слева направо, и метка на пути взгляда мешает больше, чем помогает.
+        Row(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.weight(1f)) {
         Text(
             text = buildAnnotatedString {
                 append(Marks.forLang(lang, headSide).orEmpty())
@@ -625,6 +710,11 @@ private fun ExampleRow(example: Example, lang: String) {
                 fontStyle = FontStyle.Italic,
                 color = MaterialTheme.colorScheme.secondary
             )
+        }
+        }
+        if (example.dictBook != null) {
+            DictBadgeChip(example.dictBook, example.dictYear, Modifier.padding(start = 8.dp))
+        }
         }
     }
 }
@@ -700,3 +790,5 @@ private fun RefRow(
     }
 }
 
+/** Примеров в значении до сворачивания. Больше — читают уже выборочно. */
+private const val EXAMPLES_COLLAPSED = 3

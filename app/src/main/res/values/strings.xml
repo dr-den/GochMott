@@ -86,8 +86,8 @@
     <string name="link_conflict">dictionaries differ: %1$s</string>
     <string name="source">Source</string>
     <string name="dict_book_maciev1961">Matsiyev, 1961</string>
-    <string name="dict_book_math1997">Mathematics, 1997</string>
-    <string name="dict_book_comp2017">Computing, 2017</string>
+    <string name="dict_book_math1997">Math, 1997</string>
+    <string name="dict_book_comp2017">Comp, 2017</string>
     <string name="books_title">About the dictionaries</string>
     <string name="books_subtitle">Five dictionaries in three books</string>
     <string name="link_reviewed">checked by hand</string>
@@ -116,4 +116,11 @@
     <string name="section_only_ce">Chechen only</string>
     <string name="section_fallback_ru">The book prints this section in Russian only, so the Russian text is shown.</string>
     <string name="section_fallback_ce">The book prints this section in Chechen only, so the Chechen text is shown.</string>
+    <string name="class_note">%1$s in %2$s</string>
+    <string name="list_and">and</string>
+    <string name="examples_less">Show less</string>
+    <plurals name="examples_more">
+        <item quantity="one">%d more example</item>
+        <item quantity="other">%d more examples</item>
+    </plurals>
 </resources>

@@ -12,12 +12,16 @@ import com.bilto.gochmott.model.GramClass
 import com.bilto.gochmott.model.Lang
 import com.bilto.gochmott.model.LemmaHit
 import com.bilto.gochmott.model.LinkedEntry
+import com.bilto.gochmott.model.ClassDifference
+import com.bilto.gochmott.model.ClassNote
+import com.bilto.gochmott.model.MergedRef
 import com.bilto.gochmott.model.Ref
 import com.bilto.gochmott.model.Sense
 import com.bilto.gochmott.model.Sub
 import com.bilto.gochmott.model.Usage
 import com.bilto.gochmott.model.UsageEntry
 import com.bilto.gochmott.search.ChechenNormalizer
+import com.bilto.gochmott.search.Diacritics
 import com.bilto.gochmott.search.FuzzyKey
 import com.bilto.gochmott.search.RuNormalizer
 import com.bilto.gochmott.search.RuStem
@@ -55,6 +59,9 @@ class DictRepository @Inject constructor(
         const val HITS_LIMIT = 100         // потолок статей на один поисковый слой
         const val USAGE_LIMIT = 200        // потолок употреблений слова без своей статьи
         const val MAX_REF_HOPS = 3         // глубина цепочки отсылок при показе перевода
+        const val MAX_LINK_HOPS = 4       // группы `lemma_links` не длиннее шести статей
+        const val MIN_MERGE_CONFIDENCE = 0.9  // ниже — это разные написания, не одно слово
+        const val MERGED_SENSE_PREVIEW = 3    // строк значений в слитой карточке выдачи
         const val STATS_SEP = '|'          // разделитель полей в кэше статистики
 
         const val CE = Lang.CE
@@ -621,15 +628,24 @@ class DictRepository @Inject constructor(
     suspend fun getEntryDetail(lemmaId: Long): EntryDetail = withContext(Dispatchers.IO) {
         val lemma = getLemmaHit(lemmaId)
         val examplesBySense = getExamples(lemmaId)
-        val senses = getSenses(lemmaId, examplesBySense)
+        // Книги, где та же статья: их примеры вливаются в значения эталона,
+        // а значения, которых у него нет, встают отдельной строкой с плашкой.
+        val siblings = mergedSiblings(lemmaId)
+        val (senses, idioms) = combineWithSiblings(
+            lemmaId,
+            getSenses(lemmaId, examplesBySense),
+            examplesBySense[IDIOM_KEY].orEmpty(),
+            siblings
+        )
         EntryDetail(
             lemma = lemma.copy(classes = getClasses(lemmaId)),
             forms = getForms(lemmaId),
             senses = senses,
-            idioms = examplesBySense[IDIOM_KEY].orEmpty(),
+            idioms = idioms,
             refs = getRefs(lemmaId, withTargetSenses = senses.isEmpty()),
             source = getSource(lemmaId),
-            related = getRelated(lemmaId)
+            related = getRelated(lemmaId),
+            classNotes = classNotesFor(lemmaId, siblings)
         )
     }
 
@@ -980,12 +996,14 @@ class DictRepository @Inject constructor(
             }
         }
 
-        hits.map { hit ->
-            hit.copy(
-                firstSenses = sensesMap[hit.id].orEmpty(),
-                classes = classesMap[hit.id] ?: emptyList()
-            )
-        }
+        mergeLinked(
+            hits.map { hit ->
+                hit.copy(
+                    firstSenses = sensesMap[hit.id].orEmpty(),
+                    classes = classesMap[hit.id] ?: emptyList()
+                )
+            }
+        )
     }
 
     /**
@@ -1026,6 +1044,311 @@ class DictRepository @Inject constructor(
             }
         }
         return lines.mapValues { (_, v) -> v.map { it.toString() } }
+    }
+
+    // --------------------------------------------------- одно слово в трёх книгах
+
+    /**
+     * Книги, повторяющие эту статью слово в слово, — для комбинированной карточки.
+     *
+     * Заполняется только у ЭТАЛОНА группы (наименьший `dicts.priority`). Если
+     * открыли статью младшей книги — из «В других словарях» например, — она
+     * показывает своё: подмешивать туда чужое значило бы прятать, чем эта книга
+     * от эталона отличается, а ради этого её и открыли.
+     */
+    private fun mergedSiblings(lemmaId: Long): List<MergedRef> {
+        val group = linkClosure(lemmaId)
+        if (group.size < 2) return emptyList()
+        val priority = dictPriority(group)
+        val ordered = group.sortedBy { priority[it] ?: Int.MAX_VALUE }
+        if (ordered.first() != lemmaId) return emptyList()
+
+        val rest = ordered.drop(1)
+        val books = dictRefs(rest)
+        return rest.mapNotNull { books[it] }
+    }
+
+    /** Вся группа связанных статей: `lemma_links` попарны, транзитивность добираем сами. */
+    private fun linkClosure(lemmaId: Long): List<Long> {
+        var frontier = listOf(lemmaId)
+        val seen = linkedSetOf(lemmaId)
+        repeat(MAX_LINK_HOPS) {
+            val placeholders = frontier.joinToString(",") { "?" }
+            val args = frontier.map { it.toString() }.toTypedArray()
+            val next = mutableListOf<Long>()
+            dbHelper.database.rawQuery(
+                "SELECT a_lemma_id, b_lemma_id FROM lemma_links " +
+                    "WHERE (a_lemma_id IN ($placeholders) OR b_lemma_id IN ($placeholders)) " +
+                    "AND confidence >= $MIN_MERGE_CONFIDENCE",
+                args + args
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    listOf(cursor.getLong(0), cursor.getLong(1))
+                        .forEach { if (seen.add(it)) next.add(it) }
+                }
+            }
+            if (next.isEmpty()) return seen.toList()
+            frontier = next
+        }
+        return seen.toList()
+    }
+
+    private fun dictRefs(ids: List<Long>): Map<Long, MergedRef> {
+        if (ids.isEmpty()) return emptyMap()
+        val placeholders = ids.joinToString(",") { "?" }
+        val out = HashMap<Long, MergedRef>()
+        dbHelper.database.rawQuery(
+            "SELECT l.id, d.book, d.year FROM lemmas l JOIN dicts d ON d.id = l.dict_id " +
+                "WHERE l.id IN ($placeholders)",
+            ids.map { it.toString() }.toTypedArray()
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                out[cursor.getLong(0)] = MergedRef(
+                    lemmaId = cursor.getLong(0),
+                    dictBook = cursor.getString(1) ?: "",
+                    dictYear = if (cursor.isNull(2)) null else cursor.getInt(2)
+                )
+            }
+        }
+        return out
+    }
+
+    /**
+     * Чем книги расходятся по классу. Показатели у всех приведены к одной букве
+     * (`в` `й` `б` `д`), поэтому сравнение честное: `ю` словаря 1997 и `й` словаря
+     * 2017 — это один и тот же класс, а не расхождение.
+     */
+    private fun classNotesFor(lemmaId: Long, siblings: List<MergedRef>): List<ClassNote> {
+        if (siblings.isEmpty()) return emptyList()
+        val mine = classesByNumber(lemmaId)
+        // Ключ — весь набор расхождений книги, поэтому книги с одинаковым
+        // разночтением собираются в одну помету, а не в две-четыре.
+        val bySignature = LinkedHashMap<List<ClassDifference>, MutableList<MergedRef>>()
+        siblings.forEach { sibling ->
+            val diffs = classesByNumber(sibling.lemmaId)
+                .filter { (number, markers) -> markers != mine[number] }
+                .map { (number, markers) -> ClassDifference(number, markers) }
+                // Сначала единственное, потом множественное — как в шапке карточки.
+                .sortedBy { if (it.number == "sg") 0 else 1 }
+            if (diffs.isNotEmpty()) bySignature.getOrPut(diffs) { mutableListOf() }.add(sibling)
+        }
+        return bySignature.map { (diffs, books) -> ClassNote(diffs, books) }
+    }
+
+    private fun classesByNumber(lemmaId: Long): Map<String, List<String>> {
+        val out = LinkedHashMap<String, MutableList<String>>()
+        dbHelper.database.rawQuery(
+            "SELECT number, marker FROM lemma_class WHERE lemma_id = ? ORDER BY number DESC, ordering",
+            arrayOf(lemmaId.toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                out.getOrPut(cursor.getString(0) ?: "") { mutableListOf() }
+                    .add(cursor.getString(1) ?: "")
+            }
+        }
+        return out
+    }
+
+    /**
+     * Вливает статьи книг-двойников в статью эталона.
+     *
+     * Схлопывание идёт по ЗНАЧЕНИЯМ, а не по книгам. Иначе у `хьаьрк` карточка
+     * выходит списком «диакритический знак, знак, цифра, знак, цифра»: 1997 даёт
+     * «знак; цифра», 2017 — то же самое, и обе книги печатают свою строку, хотя
+     * нового во второй нет.
+     *
+     * Поэтому ведём набор уже показанных переводов (нормализованных):
+     *
+     *  * значение младшей книги не добавляет ничего нового — своей строки не
+     *    получает, его примеры дописываются к подходящему значению эталона
+     *    с плашкой книги;
+     *  * добавляет — показываем ТОЛЬКО новые переводы, отдельной строкой
+     *    с плашкой. Книга, повторившая это значение следом, дописывается
+     *    в ту же плашку.
+     *
+     * Идиомы за «◊» относятся к статье целиком и просто дописываются в общий
+     * список.
+     */
+    private fun combineWithSiblings(
+        lemmaId: Long,
+        own: List<Sense>,
+        ownIdioms: List<Example>,
+        siblings: List<MergedRef>
+    ): Pair<List<Sense>, List<Example>> {
+        if (siblings.isEmpty()) return own to ownIdioms
+
+        class Bucket(
+            var sense: Sense,
+            val norms: MutableSet<String>,
+            val added: MutableList<Example> = mutableListOf(),
+            val books: MutableList<MergedRef> = mutableListOf()
+        )
+
+        val buckets = own.mapTo(mutableListOf()) { sense ->
+            Bucket(sense, sense.glosses.mapTo(mutableSetOf()) { normOf(it) })
+        }
+        val shown = buckets.flatMapTo(mutableSetOf()) { it.norms }
+        val idioms = ownIdioms.toMutableList()
+
+        siblings.forEach { book ->
+            val examples = getExamples(book.lemmaId)
+            idioms += examples[IDIOM_KEY].orEmpty().map { it.from(book) }
+            getSenses(book.lemmaId, examples).forEach { sense ->
+                val keys = sense.glosses.map { normOf(it) }.toSet()
+                val fresh = keys - shown
+                if (fresh.isEmpty()) {
+                    // Книга ничего не добавляет: примеры к самому близкому значению,
+                    // а плашку — к тем строкам, которые она тоже подтверждает.
+                    buckets.filter { it.norms.isNotEmpty() && keys.containsAll(it.norms) }
+                        .forEach { if (book !in it.books && it.books.isNotEmpty()) it.books += book }
+                    val host = buckets
+                        .maxByOrNull { it.norms.intersect(keys).size }
+                        ?.takeIf { it.norms.intersect(keys).isNotEmpty() }
+                    if (host != null) host.added += sense.examples.map { it.from(book) }
+                    else if (sense.examples.isNotEmpty()) {
+                        buckets.firstOrNull()?.added?.addAll(sense.examples.map { it.from(book) })
+                    }
+                } else {
+                    val onlyNew = sense.glosses.filter { normOf(it) in fresh }
+                    buckets += Bucket(
+                        sense = sense.copy(glosses = onlyNew, fromBooks = listOf(book)),
+                        norms = fresh.toMutableSet(),
+                        books = mutableListOf(book)
+                    )
+                    shown += fresh
+                }
+            }
+        }
+
+        val senses = buckets.map { bucket ->
+            bucket.sense.copy(
+                examples = bucket.sense.examples + bucket.added,
+                fromBooks = bucket.books.toList()
+            )
+        }
+        return senses to idioms
+    }
+
+    private fun Example.from(book: MergedRef) =
+        copy(dictBook = book.dictBook, dictYear = book.dictYear)
+
+    /**
+     * Ключ перевода — тот же, что лежит в `glosses.text_norm`.
+     *
+     * Считаем на месте, а не читаем из базы: перевод у нас уже в руках, а лишний
+     * запрос на каждую статью-двойник — на ровном месте.
+     */
+    private fun normOf(gloss: Gloss): String =
+        if (gloss.lang == RU) RuNormalizer.normalize(gloss.text)
+        else ChechenNormalizer.normalize(gloss.text)
+
+
+    /**
+     * Схлопывает статьи, которые разные книги повторяют слово в слово.
+     *
+     * `тӀадам` стоит заголовком у Мациева, в математическом 1997 и в компьютерном
+     * 2017, и переводы у всех троих те же — три строки выдачи на одно слово.
+     * Схлопываем их в одну; какая книга главная, решает `dicts.priority`, то есть
+     * Мациев — эталон.
+     *
+     * **Условие слияния — связь в `lemma_links` с уверенностью от 0.9.** Значения
+     * при этом сравнивать не нужно: то, чего у эталона нет, карточка показывает
+     * отдельной строкой с плашкой книги (`Sense.dictBook`), так что слияние ничего
+     * не прячет. У `хьаьрк` Мациев даёт «диакритический знак; знак», а 1997 и 2017
+     * добавляют «цифра» — слово одно, и строка выдачи должна быть одна.
+     *
+     * Отброшены 15 связей с уверенностью 0.7: это не одно слово в двух книгах,
+     * а два НАПИСАНИЯ одного — `ворхӀбӀе̃` и `ворхӀ бӀе`, `цхьа` и `цхьаъ`.
+     * Показать оба честнее, чем выдать одно за другое.
+     *
+     * Сливаем только среди тех статей, что реально попали в выдачу: если форма
+     * младшей книги запросу не отвечала, её там быть и не должно.
+     */
+    private fun mergeLinked(hits: List<LemmaHit>): List<LemmaHit> {
+        if (hits.size < 2) return hits
+        val byId = hits.associateBy { it.id }
+        val groups = linkGroupsWithin(byId.keys)
+        if (groups.isEmpty()) return hits
+
+        val priority = dictPriority(byId.keys.toList())
+        // Кого в какую строку убрать; строку ведёт статья с наименьшим priority.
+        val absorbedBy = HashMap<Long, Long>()
+        for (group in groups) {
+            val ordered = group.sortedBy { priority[it] ?: Int.MAX_VALUE }
+            ordered.drop(1).forEach { absorbedBy[it] = ordered.first() }
+        }
+        if (absorbedBy.isEmpty()) return hits
+
+        val merged = HashMap<Long, MutableList<LemmaHit>>()
+        hits.forEach { hit ->
+            val primary = absorbedBy[hit.id] ?: return@forEach
+            merged.getOrPut(primary) { mutableListOf() }.add(hit)
+        }
+        return hits.mapNotNull { hit ->
+            if (hit.id in absorbedBy) return@mapNotNull null
+            val absorbed = merged[hit.id] ?: return@mapNotNull hit
+            hit.copy(
+                alsoIn = absorbed.map { MergedRef(it.id, it.dictBook, it.dictYear) },
+                // Значения младших книг дописываем в превью: у `абаде̃` Мациев даёт
+                // «вечность без конца», а 1997 — «бесконечность», и увидеть это
+                // хочется в выдаче, а не после тапа. Повторы отсеиваем по СМЫСЛУ,
+                // а не по строке: `то́чка` Мациева и `точка` словаря 1997 — одно
+                // и то же значение, и «капля, точка, точка» в строке недопустимо.
+                firstSenses = (hit.firstSenses + absorbed.flatMap { it.firstSenses })
+                    .distinctBy { Diacritics.plain(it).lowercase() }
+                    .take(MERGED_SENSE_PREVIEW),
+                // Совпасть мог перевод младшей книги — тогда строка «почему нашлось»
+                // принадлежит ей, и терять её нельзя.
+                matchedGloss = hit.matchedGloss ?: absorbed.firstNotNullOfOrNull { it.matchedGloss }
+            )
+        }
+    }
+
+    /** Группы связанных статей ВНУТРИ переданного множества; одиночки опущены. */
+    private fun linkGroupsWithin(ids: Set<Long>): List<List<Long>> {
+        if (ids.size < 2) return emptyList()
+        val placeholders = ids.joinToString(",") { "?" }
+        val args = ids.map { it.toString() }.toTypedArray()
+        val sql = """
+            SELECT a_lemma_id, b_lemma_id FROM lemma_links
+            WHERE a_lemma_id IN ($placeholders) AND b_lemma_id IN ($placeholders)
+              AND confidence >= $MIN_MERGE_CONFIDENCE
+        """.trimIndent()
+        val parent = HashMap<Long, Long>()
+        fun find(x: Long): Long {
+            var cur = x
+            while (parent[cur] != cur) {
+                parent[cur] = parent[parent[cur]]!!
+                cur = parent[cur]!!
+            }
+            return cur
+        }
+        dbHelper.database.rawQuery(sql, args + args).use { cursor ->
+            while (cursor.moveToNext()) {
+                val a = cursor.getLong(0)
+                val b = cursor.getLong(1)
+                parent.getOrPut(a) { a }
+                parent.getOrPut(b) { b }
+                val ra = find(a)
+                val rb = find(b)
+                if (ra != rb) parent[ra] = rb
+            }
+        }
+        return parent.keys.groupBy { find(it) }.values.filter { it.size > 1 }.map { it.sorted() }
+    }
+
+    private fun dictPriority(ids: List<Long>): Map<Long, Int> {
+        if (ids.isEmpty()) return emptyMap()
+        val placeholders = ids.joinToString(",") { "?" }
+        val out = HashMap<Long, Int>()
+        dbHelper.database.rawQuery(
+            "SELECT l.id, d.priority FROM lemmas l JOIN dicts d ON d.id = l.dict_id " +
+                "WHERE l.id IN ($placeholders)",
+            ids.map { it.toString() }.toTypedArray()
+        ).use { cursor ->
+            while (cursor.moveToNext()) out[cursor.getLong(0)] = cursor.getInt(1)
+        }
+        return out
     }
 
     private fun buildHits(cursor: Cursor): List<LemmaHit> = buildList {

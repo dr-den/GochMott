@@ -42,7 +42,12 @@ data class LemmaHit(
      * на глоссе, а не на статье, поэтому у «утомле́ние» видно, что у `хьахар¹`
      * совпало значение 1 из 4, а не вся статья целиком. null для чеч→рус.
      */
-    val matchedGloss: String? = null
+    val matchedGloss: String? = null,
+    /**
+     * Другие книги, где та же статья повторена слово в слово, — строка выдачи
+     * у них общая. Пусто, если статья одна или книги расходятся по значениям.
+     */
+    val alsoIn: List<MergedRef> = emptyList()
 ) {
     val indeclinable: Boolean get() = "нескл." in labels
 
@@ -92,6 +97,13 @@ data class Gloss(
 
 data class Sense(
     val id: Long,
+    /**
+     * Книги, откуда значение, если у эталона его нет. Пусто — значение своё.
+     *
+     * Список, а не одна книга: «цифра» у `хьаьрк` есть и в 1997, и в 2017, и это
+     * одно значение с двумя источниками, а не две строки.
+     */
+    val fromBooks: List<MergedRef> = emptyList(),
     /** Номер значения из книги; null — значение в статье одно. */
     val senseNo: Int?,
     /** Номер блока `1.` / `2.`, если статья разбита по частям речи. */
@@ -114,6 +126,9 @@ data class Sub(
 )
 
 data class Example(
+    /** Книга, если пример пришёл не из статьи-эталона. null — свой. */
+    val dictBook: String? = null,
+    val dictYear: Int? = null,
     val ceText: String,
     val ruText: String?,
     /** `phrase` | `посл.` | `погов.` */
@@ -141,6 +156,36 @@ data class Ref(
      * перевод цели прямо в карточке важнее, чем сэкономить запрос.
      */
     val targetSenses: List<String> = emptyList()
+)
+
+/** Та же статья в другой книге: куда идти и чем подписать. */
+data class MergedRef(
+    val lemmaId: Long,
+    val dictBook: String,
+    val dictYear: Int?
+)
+
+/** В каком числе и какой показатель стоит у книги-двойника. */
+data class ClassDifference(
+    /** `sg` | `pl`. */
+    val number: String,
+    val markers: List<String>
+)
+
+/**
+ * Расхождение по классу с эталоном.
+ *
+ * `ед[бу] мн[ду] (мн[бу] в Математика, 1997)`: у перечисленных книг показатель
+ * другой. Эталон — книга с наименьшим `dicts.priority`, у нас это Мациев.
+ * Победителя не выбираем: показываем и своё, и чужое с источником.
+ *
+ * Группируется по КНИГАМ, а не по числам: у `агӀо` обе младшие книги расходятся
+ * и в единственном, и во множественном, и четыре отдельные пометы в строке —
+ * это уже нечитаемо. Одна: «(ед[ю] мн[ю] в Математика, 1997 и Компьютер, 2017)».
+ */
+data class ClassNote(
+    val differences: List<ClassDifference>,
+    val books: List<MergedRef>
 )
 
 /**
@@ -189,7 +234,9 @@ data class EntryDetail(
     /** Откуда статья. null — только если паспорт словаря не прочитался. */
     val source: DictSource? = null,
     /** Это же слово в других книгах; пусто, пока словарь в базе один. */
-    val related: List<LinkedEntry> = emptyList()
+    val related: List<LinkedEntry> = emptyList(),
+    /** Чем книги расходятся по классу; пусто, если сходятся или статья одна. */
+    val classNotes: List<ClassNote> = emptyList()
 )
 
 /**

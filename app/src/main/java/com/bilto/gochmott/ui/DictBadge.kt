@@ -35,11 +35,23 @@ object DictBadge {
     }
 }
 
-/** Плашка книги. Пустой код (нет данных) не рисуется вовсе. */
+/**
+ * Плашка книги. Пустой код (нет данных) не рисуется вовсе.
+ *
+ * [extra] — сколько ещё книг повторяют эту статью слово в слово. Строка выдачи
+ * у них общая, и плашка говорит «Мациев, 1961 +2», а не перечисляет все три:
+ * подписана ведущая книга, полный список виден в карточке.
+ */
 @Composable
-fun DictBadgeChip(bookCode: String, year: Int?, modifier: Modifier = Modifier) {
-    val text = DictBadge.label(bookCode, year)
-    if (text.isEmpty()) return
+fun DictBadgeChip(
+    bookCode: String,
+    year: Int?,
+    modifier: Modifier = Modifier,
+    extra: Int = 0
+) {
+    val label = DictBadge.label(bookCode, year)
+    if (label.isEmpty()) return
+    val text = if (extra > 0) "$label +$extra" else label
     Text(
         text = text,
         style = MaterialTheme.typography.labelSmall,
