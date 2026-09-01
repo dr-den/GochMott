@@ -112,4 +112,8 @@
         <item quantity="one">%,d Russian word</item>
         <item quantity="other">%,d Russian words</item>
     </plurals>
+    <string name="section_only_ru">Russian only</string>
+    <string name="section_only_ce">Chechen only</string>
+    <string name="section_fallback_ru">The book prints this section in Russian only, so the Russian text is shown.</string>
+    <string name="section_fallback_ce">The book prints this section in Chechen only, so the Chechen text is shown.</string>
 </resources>

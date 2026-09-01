@@ -255,12 +255,17 @@ def build_book(spec, paras, meta):
         sections.append({
             'id': s['id'],
             'title': s['title'],
+            'appText': False,
             'ru': section(paras, s['ru']),
             'ce': section(paras, s['ce']),
         })
     sections.append({
+        # appText: текст написало приложение, а не книга. Приложение по этому
+        # признаку не пишет «раздела нет по-чеченски» — раздела нет и в книге,
+        # потому что книга про расхождения с собой не пишет.
         'id': 'app_note',
         'title': {'ru': 'О тексте в приложении', 'ce': ''},
+        'appText': True,
         'ru': [[p] for p in NOTES[spec['code']]],
         'ce': [],
     })

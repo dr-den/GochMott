@@ -118,4 +118,8 @@
         <item quantity="many">%,d русских слов</item>
         <item quantity="other">%,d русских слова</item>
     </plurals>
+    <string name="section_only_ru">только по-русски</string>
+    <string name="section_only_ce">только по-чеченски</string>
+    <string name="section_fallback_ru">В книге этот раздел напечатан только по-русски — показан русский текст.</string>
+    <string name="section_fallback_ce">В книге этот раздел напечатан только по-чеченски — показан чеченский текст.</string>
 </resources>

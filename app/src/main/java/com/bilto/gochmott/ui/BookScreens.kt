@@ -250,15 +250,21 @@ fun BookHubScreen(
     BookContent(viewModel, onBack, title = { book, lang -> book.heading(lang) }) { book, lang ->
         LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
             items(book.sections) { section ->
-                BookRow(section.heading(lang), onClick = { onOpenSection(section.id) })
+                BookRow(
+                    title = section.heading(lang),
+                    // Читателю лучше знать до тапа, что раздел откроется
+                    // на другом языке, — иначе смена языка выглядит поломкой.
+                    subtitle = if (section.isFallback(lang)) fallbackLabel(lang) else null,
+                    onClick = { onOpenSection(section.id) }
+                )
             }
             // Список сокращений и алфавит напечатал только Мациев; у словарей
             // 1997 и 2017 их нет, и строки-пустышки предлагать нечего.
             if (book.abbreviations.isNotEmpty()) {
-                item { BookRow(book.abbreviationsTitle[lang], onOpenAbbreviations) }
+                item { BookRow(book.abbreviationsTitle[lang], onClick = onOpenAbbreviations) }
             }
             if (book.alphabet.isNotEmpty()) {
-                item { BookRow(book.alphabetTitle[lang], onOpenAlphabet) }
+                item { BookRow(book.alphabetTitle[lang], onClick = onOpenAlphabet) }
             }
             item {
                 Spacer(Modifier.height(16.dp))
@@ -274,8 +280,14 @@ fun BookHubScreen(
     }
 }
 
+/** Короткая помета «только по-русски» / «только по-чеченски» для нужной стороны. */
 @Composable
-private fun BookRow(title: String, onClick: () -> Unit) {
+private fun fallbackLabel(lang: BookLang): String = stringResource(
+    if (lang == BookLang.CE) R.string.section_only_ru else R.string.section_only_ce
+)
+
+@Composable
+private fun BookRow(title: String, subtitle: String? = null, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -283,11 +295,20 @@ private fun BookRow(title: String, onClick: () -> Unit) {
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.weight(1f)
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontStyle = FontStyle.Italic,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         Icon(
             imageVector = Icons.AutoMirrored.Filled.ArrowForward,
             contentDescription = null,
@@ -316,6 +337,22 @@ fun BookSectionScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // Своей стороны у раздела может не быть: словарь 1997 года напечатал
+            // предисловие только по-чеченски, а «Построение словаря» только
+            // по-русски. Показываем то, что есть, но говорим почему.
+            if (section?.isFallback(lang) == true) {
+                item {
+                    Text(
+                        text = stringResource(
+                            if (lang == BookLang.CE) R.string.section_fallback_ru
+                            else R.string.section_fallback_ce
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontStyle = FontStyle.Italic,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             items(paragraphs) { paragraph -> BookParagraphRow(paragraph) }
             item { Spacer(Modifier.height(24.dp)) }
         }

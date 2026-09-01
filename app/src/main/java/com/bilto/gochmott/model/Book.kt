@@ -41,9 +41,28 @@ typealias BookParagraph = List<TextRun>
 data class BookSection(
     val id: String,
     val title: Bilingual,
+    /**
+     * Текст написан приложением, а не напечатан в книге («О тексте в приложении»).
+     * Такому разделу нечего переводить силами книги, и помета «есть только
+     * по-русски» про него была бы враньём — она про книгу, а не про приложение.
+     */
+    val isAppText: Boolean,
     private val ru: List<BookParagraph>,
     private val ce: List<BookParagraph>
 ) {
+    /** Есть ли у раздела эта сторона в книге. */
+    fun has(lang: BookLang): Boolean = side(lang).isNotEmpty()
+
+    /**
+     * Показан текст на другом языке, потому что своего в книге нет.
+     *
+     * Так устроен словарь 1997 года: предисловие он напечатал только
+     * по-чеченски, а «Построение словаря» только по-русски. Подставить
+     * существующую сторону лучше, чем показать пустой экран, — но читателю
+     * надо сказать, почему язык сменился, иначе это выглядит поломкой.
+     */
+    fun isFallback(lang: BookLang): Boolean =
+        !isAppText && !has(lang) && has(lang.other())
     /**
      * Текст раздела. Если своей стороны у раздела нет — подставляем другую.
      *
@@ -52,10 +71,9 @@ data class BookSection(
      * только по-русски. Пустой экран вместо существующего текста был бы хуже,
      * чем текст на другом языке — так же поступает и список сокращений.
      */
-    fun body(lang: BookLang): List<BookParagraph> =
-        (if (lang == BookLang.RU) ru else ce).ifEmpty {
-            if (lang == BookLang.RU) ce else ru
-        }
+    fun body(lang: BookLang): List<BookParagraph> = side(lang).ifEmpty { side(lang.other()) }
+
+    private fun side(lang: BookLang): List<BookParagraph> = if (lang == BookLang.RU) ru else ce
 
     fun heading(lang: BookLang): String = title[lang].ifBlank { title[lang.other()] }
 }

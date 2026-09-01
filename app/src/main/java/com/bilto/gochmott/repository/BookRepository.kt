@@ -92,6 +92,7 @@ class BookRepository @Inject constructor(
             BookSection(
                 id = obj.getString("id"),
                 title = obj.getJSONObject("title").bilingual(),
+                isAppText = obj.optBoolean("appText"),
                 ru = obj.getJSONArray("ru").paragraphs(),
                 ce = obj.getJSONArray("ce").paragraphs()
             )
