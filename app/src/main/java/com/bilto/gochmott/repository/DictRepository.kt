@@ -48,6 +48,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         const val RU_SUGGESTION_LIMIT = 10 // сколько похожих русских слов предлагаем
         const val HITS_LIMIT = 100         // потолок статей на один поисковый слой
         const val USAGE_LIMIT = 200        // потолок употреблений слова без своей статьи
+        const val MAX_REF_HOPS = 3         // глубина цепочки отсылок при показе перевода
 
         const val CE = Lang.CE
         const val RU = Lang.RU
@@ -539,12 +540,13 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
     suspend fun getEntryDetail(lemmaId: Long): EntryDetail = withContext(Dispatchers.IO) {
         val lemma = getLemmaHit(lemmaId)
         val examplesBySense = getExamples(lemmaId)
+        val senses = getSenses(lemmaId, examplesBySense)
         EntryDetail(
             lemma = lemma.copy(classes = getClasses(lemmaId)),
             forms = getForms(lemmaId),
-            senses = getSenses(lemmaId, examplesBySense),
+            senses = senses,
             idioms = examplesBySense[IDIOM_KEY].orEmpty(),
-            refs = getRefs(lemmaId),
+            refs = getRefs(lemmaId, withTargetSenses = senses.isEmpty()),
             source = getSource(lemmaId),
             related = getRelated(lemmaId)
         )
@@ -779,14 +781,25 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         return out
     }
 
-    private fun getRefs(lemmaId: Long): List<Ref> {
+    /**
+     * Отсылки статьи.
+     *
+     * [withTargetSenses] — подтянуть переводы цели. Нужно, когда своих значений
+     * у статьи нет вовсе: таких 5 451 из 22 500, и вся их суть в отсылке
+     * («ба̃тӀо̃ см. да̃тӀо̃», «понуд. от», «мн. от»). Без переводов цели карточка
+     * выглядит пустой, и читатель решает, что перевода в словаре нет.
+     *
+     * У статей со своими значениями отсылка второстепенна, и лишний запрос за
+     * переводами чужой статьи там не нужен — их 17 049 из 22 500.
+     */
+    private fun getRefs(lemmaId: Long, withTargetSenses: Boolean = false): List<Ref> {
         val sql = """
             SELECT rel, to_headword, to_lemma_id
             FROM cross_refs
             WHERE from_lemma_id = ?
             ORDER BY id
         """.trimIndent()
-        return dbHelper.database.rawQuery(sql, arrayOf(lemmaId.toString())).use { cursor ->
+        val refs = dbHelper.database.rawQuery(sql, arrayOf(lemmaId.toString())).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
                     add(Ref(
@@ -797,6 +810,53 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
                 }
             }
         }
+        if (!withTargetSenses) return refs
+
+        // 43 отсылки из 6 037 ведут в статью, которой в книге нет: у них
+        // to_lemma_id пуст, и подтягивать нечего — покажем одну ссылку.
+        return refs.map { ref ->
+            val target = ref.toLemmaId ?: return@map ref
+            ref.copy(targetSenses = sensesThroughRefs(target))
+        }
+    }
+
+    /**
+     * Переводы статьи, а если своих у неё нет — переводы того, на что она сама
+     * ссылается.
+     *
+     * Отсылки выстраиваются в цепочку: `а̃кхада̃ладала` → `а̃кхадала` → `а̃кха`
+     * («отомсти́ть»). Из 5 427 статей без своих значений перевод виден сразу
+     * у 4 572, ещё 843 требуют второго шага и 12 — третьего; тупиков нет.
+     * Поэтому [MAX_REF_HOPS] = 3: этого хватает на весь словарь.
+     *
+     * Показываем при этом ссылку на ПРЯМУЮ цель, а не на конец цепочки: читателю
+     * важно, от какого слова образовано это, а смысл по цепочке и так наследуется.
+     */
+    private fun sensesThroughRefs(startId: Long): List<String> {
+        var frontier = listOf(startId)
+        val seen = mutableSetOf(startId)
+        repeat(MAX_REF_HOPS) {
+            val senses = firstSensesOf(frontier)
+            frontier.forEach { id ->
+                senses[id]?.takeIf { it.isNotEmpty() }?.let { return it }
+            }
+            val next = refTargetsOf(frontier).filter { seen.add(it) }
+            if (next.isEmpty()) return emptyList()
+            frontier = next
+        }
+        return emptyList()
+    }
+
+    /** Куда ссылаются эти статьи. Неразрешённые отсылки пропускаются. */
+    private fun refTargetsOf(ids: List<Long>): List<Long> {
+        if (ids.isEmpty()) return emptyList()
+        val placeholders = ids.joinToString(",") { "?" }
+        val sql = """
+            SELECT DISTINCT to_lemma_id FROM cross_refs
+            WHERE from_lemma_id IN ($placeholders) AND to_lemma_id IS NOT NULL
+        """.trimIndent()
+        return dbHelper.database.rawQuery(sql, ids.map { it.toString() }.toTypedArray())
+            .use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getLong(0)) } }
     }
 
     private fun getClasses(lemmaId: Long): List<GramClass> {
@@ -825,32 +885,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         val placeholders = ids.joinToString(",") { "?" }
         val args = ids.map { it.toString() }.toTypedArray()
 
-        val sensesMap = mutableMapOf<Long, MutableList<StringBuilder>>()
-        val senseOrder = mutableMapOf<Long, MutableMap<Long, Int>>()
-        dbHelper.database.rawQuery(
-            """SELECT g.lemma_id, g.sense_id, g.text, g.sep
-               FROM glosses g
-               JOIN senses s ON s.id = g.sense_id
-               WHERE g.lemma_id IN ($placeholders)
-               ORDER BY g.lemma_id, s.block_n, s.ordering, g.idx""",
-            args
-        ).use { c ->
-            while (c.moveToNext()) {
-                val lid = c.getLong(0)
-                val sid = c.getLong(1)
-                val text = c.getString(2) ?: continue
-                val order = senseOrder.getOrPut(lid) { mutableMapOf() }
-                val lines = sensesMap.getOrPut(lid) { mutableListOf() }
-                val slot = order[sid]
-                if (slot == null) {
-                    if (lines.size >= 2) continue          // в карточку идут первые два
-                    order[sid] = lines.size
-                    lines.add(StringBuilder(text))
-                } else {
-                    lines[slot].append(c.getStringOrNull(3) ?: ",").append(' ').append(text)
-                }
-            }
-        }
+        val sensesMap = firstSensesOf(ids)
 
         val classesMap = mutableMapOf<Long, MutableList<GramClass>>()
         dbHelper.database.rawQuery(
@@ -866,10 +901,50 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
 
         hits.map { hit ->
             hit.copy(
-                firstSenses = sensesMap[hit.id]?.map { it.toString() } ?: emptyList(),
+                firstSenses = sensesMap[hit.id].orEmpty(),
                 classes = classesMap[hit.id] ?: emptyList()
             )
         }
+    }
+
+    /**
+     * Первые значения статей одной строкой — для карточки в выдаче и для превью
+     * отсылки.
+     *
+     * Значение состоит из нескольких переводов («ослабле́ние; утомле́ние»), поэтому
+     * глоссы одного значения склеиваются своим же разделителем из книги (`sep`),
+     * а разные значения остаются разными строками.
+     */
+    private fun firstSensesOf(ids: List<Long>, limit: Int = 2): Map<Long, List<String>> {
+        if (ids.isEmpty()) return emptyMap()
+        val placeholders = ids.joinToString(",") { "?" }
+        val lines = mutableMapOf<Long, MutableList<StringBuilder>>()
+        val senseOrder = mutableMapOf<Long, MutableMap<Long, Int>>()
+        dbHelper.database.rawQuery(
+            """SELECT g.lemma_id, g.sense_id, g.text, g.sep
+               FROM glosses g
+               JOIN senses s ON s.id = g.sense_id
+               WHERE g.lemma_id IN ($placeholders)
+               ORDER BY g.lemma_id, s.block_n, s.ordering, g.idx""",
+            ids.map { it.toString() }.toTypedArray()
+        ).use { c ->
+            while (c.moveToNext()) {
+                val lemmaId = c.getLong(0)
+                val senseId = c.getLong(1)
+                val text = c.getString(2) ?: continue
+                val order = senseOrder.getOrPut(lemmaId) { mutableMapOf() }
+                val bucket = lines.getOrPut(lemmaId) { mutableListOf() }
+                val slot = order[senseId]
+                if (slot == null) {
+                    if (bucket.size >= limit) continue
+                    order[senseId] = bucket.size
+                    bucket.add(StringBuilder(text))
+                } else {
+                    bucket[slot].append(c.getStringOrNull(3) ?: ",").append(' ').append(text)
+                }
+            }
+        }
+        return lines.mapValues { (_, v) -> v.map { it.toString() } }
     }
 
     private fun buildHits(cursor: Cursor): List<LemmaHit> = buildList {

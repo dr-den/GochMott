@@ -134,7 +134,13 @@ data class Example(
 data class Ref(
     val rel: String,
     val toHeadword: String,
-    val toLemmaId: Long?
+    val toLemmaId: Long?,
+    /**
+     * Первые значения статьи, на которую отсылка. Заполняются только когда своих
+     * значений у статьи нет: тогда отсылка и есть весь её смысл, и показать
+     * перевод цели прямо в карточке важнее, чем сэкономить запрос.
+     */
+    val targetSenses: List<String> = emptyList()
 )
 
 /**

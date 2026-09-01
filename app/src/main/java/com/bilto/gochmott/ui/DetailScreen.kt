@@ -40,6 +40,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -227,6 +228,22 @@ private fun DetailContent(
             }
         }
 
+        // Своих значений у статьи может не быть вовсе — весь её смысл в отсылке
+        // («ба̃тӀо̃ см. да̃тӀо̃»). Таких 5 451 из 22 500. Тогда отсылка встаёт НА МЕСТО
+        // значений, а не в конец карточки: внизу её легко не заметить и решить,
+        // что перевода в словаре нет. Переводы цели показаны тут же — см. RefRow.
+        if (detail.senses.isEmpty() && detail.refs.isNotEmpty()) {
+            item { SectionLabel(stringResource(R.string.refs)) }
+            items(detail.refs) { ref ->
+                RefRow(
+                    ref = ref,
+                    lang = lemma.lang,
+                    onNavigate = { id -> onNavigateToDetail(id) },
+                    onSearch = { q -> onSearchQuery(q) }
+                )
+            }
+        }
+
         // Значения. Примеры теперь висят на значении, а не на статье, и
         // показываются прямо под своим переводом — как в книге.
         if (detail.senses.isNotEmpty()) {
@@ -258,8 +275,9 @@ private fun DetailContent(
             items(detail.idioms) { ex -> ExampleRow(ex, lemma.lang) }
         }
 
-        // Cross-references
-        if (detail.refs.isNotEmpty()) {
+        // Отсылки как дополнение: у статьи есть свои значения, а «см.» рядом с ними
+        // второстепенно. Статьи без значений показали отсылку выше.
+        if (detail.senses.isNotEmpty() && detail.refs.isNotEmpty()) {
             item { SectionLabel(stringResource(R.string.refs)) }
             items(detail.refs) { ref ->
                 RefRow(
@@ -620,39 +638,60 @@ private fun RefRow(
     // «мн. от»: у Мациева это готовые пометы, и их 15 видов вместо двух.
     val relLabel = ref.rel
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .copyOnLongPress(ref.toHeadword) {
                 if (ref.toLemmaId != null) onNavigate(ref.toLemmaId)
                 else onSearch(ref.toHeadword)
             }
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .padding(vertical = 4.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = "$relLabel ",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = Marks.forLang(lang, ref.toHeadword).orEmpty(),
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    textDecoration = if (ref.toLemmaId != null) TextDecoration.Underline else TextDecoration.None
-                ),
-                color = if (ref.toLemmaId != null) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Medium
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "$relLabel ",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = Marks.forLang(lang, ref.toHeadword).orEmpty(),
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        textDecoration = if (ref.toLemmaId != null) TextDecoration.Underline
+                        else TextDecoration.None
+                    ),
+                    color = if (ref.toLemmaId != null) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            if (ref.toLemmaId != null) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
         }
-        if (ref.toLemmaId != null) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.Companion.then(Modifier.padding(start = 4.dp))
+
+        // Переводы статьи, на которую отсылка. Заполнены только у статей без своих
+        // значений (см. DictRepository.getRefs) — там это единственный перевод,
+        // который у слова вообще есть, и прятать его за тапом незачем.
+        if (ref.targetSenses.isNotEmpty()) {
+            Text(
+                text = Marks.forLang(
+                    Lang.other(lang), ref.targetSenses.joinToString("; ")
+                ).orEmpty(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 16.dp, top = 2.dp)
             )
         }
     }
