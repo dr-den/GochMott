@@ -1,5 +1,11 @@
 package com.bilto.gochmott.ui
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -254,7 +261,13 @@ fun SearchScreen(
                             // разойдётся с ней при первой же пересборке. Слова —
                             // той стороны, которую сейчас ищут: в ЧЕ→РУ спрашивают
                             // чеченское слово, в РУ→ЧЕ русское.
-                            state.stats?.let { stats ->
+                            val stats = state.stats
+                            if (stats == null) {
+                                // Первый запуск после смены словаря: цифры ещё
+                                // считаются на IO. Держим место, а не дёргаем
+                                // вёрстку скачком, когда строка появится.
+                                if (!state.statsSettled) StatsPlaceholder()
+                            } else {
                                 Spacer(Modifier.height(8.dp))
                                 Text(
                                     text = stringResource(
@@ -485,6 +498,34 @@ private fun SuggestionsBlock(
  * заливки и подпись «встречается в переводах», потому что за ней не статья из
  * книги, а список мест, где слово стоит.
  */
+/**
+ * Место под подпись, пока цифры считаются.
+ *
+ * Появляется только при первом запуске после смены словаря — дальше цифры
+ * лежат в `common.db` и приходят сразу. Пульсирующий прямоугольник, а не пустота:
+ * иначе строка возникает рывком и сдвигает вёрстку под уже читающим глазом.
+ */
+@Composable
+private fun StatsPlaceholder() {
+    val pulse = rememberInfiniteTransition(label = "stats")
+    val alpha by pulse.animateFloat(
+        initialValue = 0.12f,
+        targetValue = 0.30f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "statsAlpha"
+    )
+    Box(
+        modifier = Modifier
+            .padding(top = 10.dp)
+            .width(190.dp)
+            .height(14.dp)
+            .background(
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha),
+                RoundedCornerShape(4.dp)
+            )
+    )
+}
+
 /** «20 653 чеченских слова» либо «26 224 русских слова» — смотря что сейчас ищут. */
 @Composable
 private fun wordsLabel(stats: DictStats, direction: SearchDirection): String {

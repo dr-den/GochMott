@@ -63,6 +63,16 @@ class DatabaseHelper @Inject constructor(
     private val _dbVersion  = MutableStateFlow(-1)
     val dbVersion  = _dbVersion.asStateFlow()
 
+    /**
+     * Версия установленной локальной копии. Открывает БД, если ещё не открыта, —
+     * до этого [dbVersion] держит -1, и полагаться на порядок вызовов нельзя.
+     */
+    val installedVersion: Int
+        get() {
+            database
+            return dbVersion.value
+        }
+
     private fun openDatabase(): SQLiteDatabase {
         val dbFile = context.getDatabasePath(DB_NAME)
 

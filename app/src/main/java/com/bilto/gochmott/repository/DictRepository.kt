@@ -21,6 +21,8 @@ import com.bilto.gochmott.search.ChechenNormalizer
 import com.bilto.gochmott.search.FuzzyKey
 import com.bilto.gochmott.search.RuNormalizer
 import com.bilto.gochmott.search.RuStem
+import com.bilto.gochmott.settingsrepo.SettingKeys
+import com.bilto.gochmott.settingsrepo.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -41,7 +43,10 @@ import javax.inject.Singleton
  * а пустая ветка просто ничего не возвращает.
  */
 @Singleton
-class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
+class DictRepository @Inject constructor(
+    private val dbHelper: DatabaseHelper,
+    private val settings: SettingsRepository
+) {
 
     private companion object {
         const val MIN_FUZZY_LEN = 2        // короче — совпадёт пол-словаря
@@ -50,6 +55,7 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
         const val HITS_LIMIT = 100         // потолок статей на один поисковый слой
         const val USAGE_LIMIT = 200        // потолок употреблений слова без своей статьи
         const val MAX_REF_HOPS = 3         // глубина цепочки отсылок при показе перевода
+        const val STATS_SEP = '|'          // разделитель полей в кэше статистики
 
         const val CE = Lang.CE
         const val RU = Lang.RU
@@ -539,18 +545,40 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
     // ------------------------------------------------------------- статистика
 
     @Volatile private var cachedStats: DictStats? = null
+    private val statsMutex = Mutex()
 
     /**
-     * Что показать на пустом экране поиска. Считается один раз и кэшируется:
-     * запрос по русской стороне пробегает весь обратный индекс.
+     * Что показать на пустом экране поиска.
+     *
+     * Считается ОДИН РАЗ на версию словаря и кладётся в `common.db`: запрос по
+     * русской стороне пробегает весь обратный индекс (93 467 строк), и делать
+     * это при каждом старте — заставлять слабое устройство работать впустую.
+     *
+     * Признак годности кэша — `PRAGMA user_version` установленной копии. Словарь
+     * read-only и целиком заменяется файлом, а версия при каждой пересборке
+     * поднимается (это стережёт `DbVersionTest`), так что другого признака не
+     * нужно: совпала версия — цифры те же.
+     *
+     * В памяти держится ещё и [cachedStats]: за время сессии направление поиска
+     * переключают много раз, и ходить за этим в Room каждый раз незачем.
      */
-    suspend fun stats(): DictStats = cachedStats ?: withContext(Dispatchers.IO) {
+    suspend fun stats(): DictStats {
+        cachedStats?.let { return it }
+        return statsMutex.withLock {
+            cachedStats ?: withContext(Dispatchers.IO) {
+                val version = dbHelper.installedVersion
+                readCachedStats(version) ?: computeStats().also { saveStats(version, it) }
+            }.also { cachedStats = it }
+        }
+    }
+
+    /** Тяжёлая часть: три запроса по самой словарной базе. */
+    private fun computeStats(): DictStats {
         fun count(sql: String, vararg args: String): Int =
             dbHelper.database.rawQuery(sql, args).use { c ->
                 if (c.moveToFirst()) c.getInt(0) else 0
             }
-
-        DictStats(
+        return DictStats(
             // Книг, а не направлений: math1997_ce и math1997_ru — одна книга.
             books = count("SELECT COUNT(DISTINCT book) FROM dicts"),
             // Чеченская сторона: заголовки, по ним и идёт прямой поиск.
@@ -564,7 +592,29 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
                 RU, RU
             )
         )
-    }.also { cachedStats = it }
+    }
+
+    /** `версия|книг|чеченских|русских`; чужая версия или мусор -> null, пересчитаем. */
+    private suspend fun readCachedStats(version: Int): DictStats? {
+        val raw = settings.getOrNull(SettingKeys.dictStats).orEmpty()
+        val parts = raw.split(STATS_SEP)
+        if (parts.size != 4) return null
+        val numbers = parts.map { it.toIntOrNull() ?: return null }
+        if (numbers[0] != version) return null
+        return DictStats(
+            books = numbers[1],
+            chechenWords = numbers[2],
+            russianWords = numbers[3]
+        )
+    }
+
+    private fun saveStats(version: Int, stats: DictStats) {
+        settings.set(
+            SettingKeys.dictStats,
+            listOf(version, stats.books, stats.chechenWords, stats.russianWords)
+                .joinToString(STATS_SEP.toString())
+        )
+    }
 
     // ------------------------------------------------------------- карточка
 

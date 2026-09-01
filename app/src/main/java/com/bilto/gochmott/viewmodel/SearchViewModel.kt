@@ -44,7 +44,12 @@ data class SearchState(
     val dbReady: Boolean = false,
     val dbError: String? = null,
     /** Что лежит в базе — подпись на пустом экране. null, пока не посчитано. */
-    val stats: DictStats? = null
+    val stats: DictStats? = null,
+    /**
+     * Попытка получить статистику завершилась — успехом или нет. Пока false,
+     * на месте подписи стоит заглушка; иначе при сбое она пульсировала бы вечно.
+     */
+    val statsSettled: Boolean = false
 ) {
     val hasExact: Boolean get() = exactResults.isNotEmpty()
     val hasNoResults: Boolean
@@ -109,7 +114,11 @@ class SearchViewModel @Inject constructor(
             try {
                 val stats = repository.stats()
                 _state.update { it.copy(stats = stats) }
-            } catch (_: Exception) { }
+            } catch (_: Exception) {
+                // Подпись не критична: молча остаёмся без неё.
+            } finally {
+                _state.update { it.copy(statsSettled = true) }
+            }
 
             // индекс примерного поиска строится заметное время — греем его сразу, чтобы
             // первый же запрос отдал «похожие слова» без паузы. Сбой тут поиск не ломает.
