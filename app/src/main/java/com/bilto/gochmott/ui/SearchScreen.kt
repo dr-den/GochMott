@@ -660,9 +660,9 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
                 val sg = hit.classes.filter { it.number == "sg" }.map { it.marker }
                 val pl = hit.classes.filter { it.number == "pl" }.map { it.marker }
                 val classStr = buildString {
-                    if (sg.isNotEmpty()) append(stringResource(R.string.sg_forms, sg.joinToString(",")))
+                    if (sg.isNotEmpty()) append(stringResource(R.string.sg_forms, ClassMarker.list(sg)))
                     if (sg.isNotEmpty() && pl.isNotEmpty()) append(" ")
-                    if (pl.isNotEmpty()) append(stringResource(R.string.pl_forms, pl.joinToString(",")))
+                    if (pl.isNotEmpty()) append(stringResource(R.string.pl_forms, ClassMarker.list(pl)))
                 }
                 if (classStr.isNotEmpty()) {
                     Text(

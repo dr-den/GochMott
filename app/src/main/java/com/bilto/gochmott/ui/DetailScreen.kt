@@ -192,9 +192,9 @@ private fun DetailContent(
                     val sg = lemma.classes.filter { it.number == "sg" }.map { it.marker }
                     val pl = lemma.classes.filter { it.number == "pl" }.map { it.marker }
                     val classStr = buildString {
-                        if (sg.isNotEmpty()) append(stringResource(R.string.sg_forms, sg.joinToString(",")))
+                        if (sg.isNotEmpty()) append(stringResource(R.string.sg_forms, ClassMarker.list(sg)))
                         if (sg.isNotEmpty() && pl.isNotEmpty()) append("  ")
-                        if (pl.isNotEmpty()) append(stringResource(R.string.pl_forms, pl.joinToString(",")))
+                        if (pl.isNotEmpty()) append(stringResource(R.string.pl_forms, ClassMarker.list(pl)))
                     }
                     Text(
                         text = classStr,
@@ -472,9 +472,12 @@ private fun plainGlosses(glosses: List<Gloss>): String = buildString {
     }
 }
 
-/** Классы чеченского перевода, как их печатает книга 2017: `адаптер (й, й)`. */
+/**
+ * Классы чеченского перевода. Книга 2017 печатает их показателем — `адаптер (й, й)`;
+ * показываем полной формой со связкой — `адаптер (ю, ю)`, см. [ClassMarker].
+ */
 private fun clsSuffix(cls: List<String>): String =
-    if (cls.isEmpty()) "" else cls.joinToString(", ", prefix = " (", postfix = ")")
+    if (cls.isEmpty()) "" else " (" + ClassMarker.list(cls) + ")"
 
 @Composable
 private fun glossesText(glosses: List<Gloss>) = buildAnnotatedString {
