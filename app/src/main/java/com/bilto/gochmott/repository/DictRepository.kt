@@ -62,6 +62,7 @@ class DictRepository @Inject constructor(
         const val MAX_REF_HOPS = 3         // глубина цепочки отсылок при показе перевода
         const val MAX_LINK_HOPS = 4       // группы `lemma_links` не длиннее шести статей
         const val MIN_MERGE_CONFIDENCE = 0.9  // ниже — это разные написания, не одно слово
+        const val MIRROR_LIMIT = 20           // зеркальных статей на одну статью
         const val MERGED_SENSE_PREVIEW = 3    // строк значений в слитой карточке выдачи
         const val STATS_SEP = '|'          // разделитель полей в кэше статистики
 
@@ -639,11 +640,16 @@ class DictRepository @Inject constructor(
         // Книги, где та же статья: их примеры вливаются в значения эталона,
         // а значения, которых у него нет, встают отдельной строкой с плашкой.
         val siblings = mergedSiblings(lemmaId)
-        val (senses, idioms) = combineWithSiblings(
+        val (combined, idioms) = combineWithSiblings(
             lemmaId,
             getSenses(lemmaId, examplesBySense),
             examplesBySense[IDIOM_KEY].orEmpty(),
             siblings
+        )
+        // Книги, где наше слово стоит переводом, а заголовком — его русский
+        // эквивалент. Поиск ЧЕ→РУ их не видит, а пара настоящая.
+        val senses = addMirrors(
+            combined, lemma.lang, mirrorEntries(lemmaId), headwordMateGlosses(lemmaId)
         )
         EntryDetail(
             lemma = lemma.copy(classes = getClasses(lemmaId)),
@@ -1158,6 +1164,101 @@ class DictRepository @Inject constructor(
     }
 
     /**
+     * Статьи, стоящие к нашей ЗЕРКАЛЬНО: у них наше слово — весь перевод.
+     *
+     * `харцо` заголовком стоит только у Мациева; математический словарь держит
+     * его в половине рус→чеч как перевод статьи «ложь». Поиск ЧЕ→РУ идёт по
+     * заголовкам и такую пару не видит, а она настоящая: весь перевод равен
+     * запросу, это не обрывок словосочетания.
+     *
+     * Берём только ДРУГИЕ книги. Половинки одной книги (`math1997_ce` и
+     * `math1997_ru`) зеркалят друг друга сплошь — 1 558 пар из 2 627, — и
+     * показывать их незачем: чеченская половина и так ищется напрямую.
+     */
+    private fun mirrorEntries(lemmaId: Long): List<MirrorEntry> {
+        val self = dbHelper.database.rawQuery(
+            "SELECT l.headword_norm, l.lang, d.book FROM lemmas l " +
+                "JOIN dicts d ON d.id = l.dict_id WHERE l.id = ?",
+            arrayOf(lemmaId.toString())
+        ).use { c ->
+            if (c.moveToFirst()) Triple(c.getString(0), c.getString(1), c.getString(2)) else null
+        } ?: return emptyList()
+        val (headwordNorm, lang, book) = self
+        if (headwordNorm.isNullOrEmpty()) return emptyList()
+
+        val sql = """
+            SELECT o.id, o.headword, o.headword_norm, d.book, d.year
+            FROM glosses g
+            JOIN lemmas o ON o.id = g.lemma_id
+            JOIN dicts  d ON d.id = g.dict_id
+            WHERE g.text_norm = ? AND g.lang = ? AND d.book <> ?
+            GROUP BY o.id
+            ORDER BY d.priority, o.ordering
+            LIMIT $MIRROR_LIMIT
+        """.trimIndent()
+        return dbHelper.database.rawQuery(sql, arrayOf(headwordNorm, lang, book)).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(0)
+                    add(MirrorEntry(
+                        book = MergedRef(
+                            lemmaId = id,
+                            dictBook = cursor.getString(3) ?: "",
+                            dictYear = if (cursor.isNull(4)) null else cursor.getInt(4)
+                        ),
+                        headword = cursor.getString(1) ?: "",
+                        headwordNorm = cursor.getString(2) ?: "",
+                        examples = mirrorExamples(id, lang, headwordNorm)
+                    ))
+                }
+            }
+        }
+    }
+
+    /**
+     * Примеры зеркальной статьи, в которых НАШЕ слово действительно есть.
+     *
+     * Статья «ложь» иллюстрирует русское слово, и её чеченская сторона не обязана
+     * содержать `харцо`: 28 % таких примеров нашего слова не содержат вовсе, и под
+     * нашей статьёй они были бы не к месту.
+     */
+    private fun mirrorExamples(lemmaId: Long, lang: String, headwordNorm: String): List<Example> =
+        getExamples(lemmaId).values.flatten().filter { example ->
+            val side = if (lang == RU) example.ruText else example.ceText
+            val norm = if (lang == RU) RuNormalizer.normalize(side)
+            else ChechenNormalizer.normalize(side)
+            norm.contains(headwordNorm)
+        }
+
+    /**
+     * Переводы статей с ТЕМ ЖЕ заголовком, кроме нашей.
+     *
+     * Зеркало ищется по написанию и само не знает, какому омониму принадлежит.
+     * Если перевода у нас нет, а у однофамильца есть — он его: у `харцо̃` «ложь»
+     * относится к первому омониму, а не ко второму («опроки́нуть, обвали́ть»).
+     */
+    private fun headwordMateGlosses(lemmaId: Long): Set<String> {
+        val sql = """
+            SELECT DISTINCT sg.text_norm
+            FROM lemmas me
+            JOIN lemmas sib ON sib.headword_norm = me.headword_norm
+                           AND sib.lang = me.lang AND sib.id <> me.id
+            JOIN glosses sg ON sg.lemma_id = sib.id
+            WHERE me.id = ?
+        """.trimIndent()
+        return dbHelper.database.rawQuery(sql, arrayOf(lemmaId.toString())).use { cursor ->
+            buildSet { while (cursor.moveToNext()) add(cursor.getString(0) ?: "") }
+        }
+    }
+
+    private class MirrorEntry(
+        val book: MergedRef,
+        val headword: String,
+        val headwordNorm: String,
+        val examples: List<Example>
+    )
+
+    /**
      * Вливает статьи книг-двойников в статью эталона.
      *
      * Схлопывание идёт по ЗНАЧЕНИЯМ, а не по книгам. Иначе у `хьаьрк` карточка
@@ -1235,6 +1336,88 @@ class DictRepository @Inject constructor(
             )
         }
         return senses to idioms
+    }
+
+    /**
+     * Дописывает в статью то, что говорят зеркальные книги (см. [mirrorEntries]).
+     *
+     * Их заголовок — это перевод НАШЕГО слова, поэтому:
+     *
+     *  * перевод у нас уже есть — новой строки не будет, книга помечает сам
+     *    перевод: «непра́вда, ложь (Матем, 1997), неуда́ча». Отдельная строка
+     *    «2. ложь» рядом с «1. …ложь…» была бы дублем;
+     *  * перевода нет — он встаёт своим значением с плашкой, как у книг-двойников.
+     *
+     * Примеры зеркальной статьи идут туда же, куда её заголовок.
+     */
+    private fun addMirrors(
+        senses: List<Sense>,
+        lang: String,
+        mirrors: List<MirrorEntry>,
+        mateGlosses: Set<String>
+    ): List<Sense> {
+        if (mirrors.isEmpty()) return senses
+
+        val booksByGloss = HashMap<String, MutableList<MergedRef>>()
+        val addedExamples = HashMap<Long, MutableList<Example>>()
+        val fresh = LinkedHashMap<String, MutableList<MirrorEntry>>()
+
+        mirrors.forEach { mirror ->
+            val host = senses.firstOrNull { sense ->
+                sense.glosses.any { normOf(it) == mirror.headwordNorm }
+            }
+            if (host == null) {
+                // Перевода у нас нет. Если он есть у однофамильца — это его
+                // зеркало, а не наше; своей строкой оно тут не встанет.
+                if (mirror.headwordNorm !in mateGlosses) {
+                    fresh.getOrPut(mirror.headwordNorm) { mutableListOf() } += mirror
+                }
+            } else {
+                booksByGloss.getOrPut(mirror.headwordNorm) { mutableListOf() } += mirror.book
+                if (mirror.examples.isNotEmpty()) {
+                    addedExamples.getOrPut(host.id) { mutableListOf() } +=
+                        mirror.examples.map { it.from(mirror.book) }
+                }
+            }
+        }
+
+        val marked = senses.map { sense ->
+            sense.copy(
+                glosses = sense.glosses.map { gloss ->
+                    val books = booksByGloss[normOf(gloss)] ?: return@map gloss
+                    gloss.copy(fromBooks = books.toList())
+                },
+                examples = sense.examples + addedExamples[sense.id].orEmpty()
+            )
+        }
+
+        // Книги с одним и тем же новым переводом собираются в одну плашку.
+        val extra = fresh.values.map { group ->
+            val first = group.first()
+            Sense(
+                // Своего значения в базе у этой строки нет: она собрана из чужого
+                // заголовка. Отрицательный id, чтобы не столкнуться с настоящими.
+                id = -first.book.lemmaId,
+                fromBooks = group.map { it.book },
+                senseNo = null,
+                blockN = null,
+                pos = null,
+                labels = emptyList(),
+                glosses = listOf(
+                    Gloss(
+                        text = first.headword,
+                        lang = Lang.other(lang),
+                        cls = emptyList(),
+                        sep = null,
+                        note = null,
+                        gov = null,
+                        labels = emptyList()
+                    )
+                ),
+                examples = group.flatMap { it.examples }
+            )
+        }
+        return marked + extra
     }
 
     private fun Example.from(book: MergedRef) =

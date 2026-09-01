@@ -572,6 +572,12 @@ private fun glossesText(glosses: List<Gloss>) = buildAnnotatedString {
             withStyle(aside) { append(gloss.labels.joinToString(" ") + " ") }
         }
         append(Marks.forLang(gloss.lang, gloss.text).orEmpty())
+        // Книга, где это слово стоит ЗАГОЛОВКОМ, а наше — переводом: та же пара,
+        // сказанная с другой стороны. Помета у самого перевода, а не отдельной
+        // строкой: «2. ложь» рядом с «1. …ложь…» было бы дублем.
+        gloss.fromBooks.forEach { book ->
+            withStyle(aside) { append(" (" + DictBadge.label(book.dictBook, book.dictYear) + ")") }
+        }
         // Классный показатель перевода: у словарей рус->чеч он стоит при чеченском
         // слове -- `адаптер (й, й)`, -- и в базе лежит в `glosses.gram.cls`.
         if (gloss.cls.isNotEmpty()) withStyle(aside) { append(clsSuffix(gloss.cls)) }
