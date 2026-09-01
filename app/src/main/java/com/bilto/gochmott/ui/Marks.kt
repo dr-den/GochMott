@@ -3,6 +3,7 @@ package com.bilto.gochmott.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.bilto.gochmott.model.Lang
 import com.bilto.gochmott.search.Diacritics
 
 /**
@@ -18,6 +19,11 @@ import com.bilto.gochmott.search.Diacritics
  * [com.bilto.gochmott.settingsrepo.DisplayPrefs].
  *
  * В буфер обмена не уходит ни то, ни другое — см. `ClipboardCopy.kt`.
+ *
+ * С появлением словарей 1997 и 2017 сторону больше нельзя угадывать по месту в
+ * карточке: у статьи `ада́птер` (рус→чеч) ударение стоит в ЗАГОЛОВКЕ, а долгота —
+ * в переводе `чIа̃на`. Поэтому текст всегда снабжается своим `lang`, и знак
+ * выбирает [forLang], а не вызывающий код.
  */
 object Marks {
     var showLength by mutableStateOf(true)
@@ -30,4 +36,11 @@ object Marks {
     /** Русский текст к показу; null проходит насквозь — поля перевода необязательны. */
     fun ru(text: String?): String? =
         if (text == null || showStress) text else Diacritics.withoutStress(text)
+
+    /**
+     * Текст к показу по коду языка из базы (`lemmas.lang`, `glosses.lang`, …).
+     * Чеченскому снимается долгота, русскому — ударение.
+     */
+    fun forLang(lang: String?, text: String?): String? =
+        if (lang == Lang.RU) ru(text) else if (text == null) null else ce(text)
 }

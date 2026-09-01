@@ -5,7 +5,7 @@
     <string name="email_client_not_found">Почтовое приложение не найдено</string>
     <string name="app_version_text">Версия приложения</string>
     <string name="found_error_q">Нашли ошибку в статье или в переводе — напишите нам.</string>
-    <string name="ch_ru_dict">Чеченско-русский словарь</string>
+    <string name="ch_ru_dict">Чеченско-русские и русско-чеченские словари</string>
     <string name="about_app">О приложении</string>
     <string name="article">Статья</string>
     <string name="back">Назад</string>
@@ -82,10 +82,17 @@
     <string name="show_ce_length_hint">ха̃дадала вместо хададала</string>
     <string name="show_ru_stress">Ударения в переводах</string>
     <string name="show_ru_stress_hint">ка́ждый раз вместо каждый раз</string>
-    <string name="book_title">О словаре</string>
     <string name="book_lang_ru">Русский</string>
     <string name="book_lang_ce">Нохчийн</string>
     <string name="other_books">В других словарях</string>
     <string name="link_conflict">книги расходятся: %1$s</string>
     <string name="source">Источник</string>
+    <string name="dict_book_maciev1961">Мациев, 1961</string>
+    <string name="dict_book_math1997">Математика, 1997</string>
+    <string name="dict_book_comp2017">Компьютер, 2017</string>
+    <string name="books_title">О словарях</string>
+    <string name="books_subtitle">Пять словарей в трёх книгах</string>
+    <string name="link_reviewed">сверено вручную</string>
+    <string name="book_entries">статей: %1$d</string>
+    <string name="book_note_title">О тексте в приложении</string>
 </resources>

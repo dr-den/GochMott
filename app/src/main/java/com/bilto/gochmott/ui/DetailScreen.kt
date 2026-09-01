@@ -50,6 +50,7 @@ import com.bilto.gochmott.model.DictSource
 import com.bilto.gochmott.model.EntryDetail
 import com.bilto.gochmott.model.Example
 import com.bilto.gochmott.model.Gloss
+import com.bilto.gochmott.model.Lang
 import com.bilto.gochmott.model.LinkedEntry
 import com.bilto.gochmott.model.Form
 import com.bilto.gochmott.model.Ref
@@ -76,7 +77,7 @@ fun DetailScreen(
                         val detail = (state as DetailState.Success).detail
                         Text(
                             text = buildAnnotatedString {
-                                append(Marks.ce(detail.lemma.headword))
+                                append(Marks.forLang(detail.lemma.lang, detail.lemma.headword).orEmpty())
                                 if (detail.lemma.homographN > 0) {
                                     withStyle(SpanStyle(fontSize = 12.sp, baselineShift = androidx.compose.ui.text.style.BaselineShift.Superscript)) {
                                         append("${detail.lemma.homographN}")
@@ -156,7 +157,7 @@ private fun DetailContent(
                         modifier = Modifier
                             .alignByBaseline()
                             .copyOnLongPress(lemma.headword),
-                        text = Marks.ce(lemma.headword),
+                        text = Marks.forLang(lemma.lang, lemma.headword).orEmpty(),
                         style = MaterialTheme.typography.titleLarge.copy(fontSize = 28.sp),
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -236,7 +237,8 @@ private fun DetailContent(
                 val previous = detail.senses.getOrNull(i - 1)
                 SenseBlock(
                     sense = sense,
-                    startsBlock = sense.blockN != null && sense.blockN != previous?.blockN
+                    startsBlock = sense.blockN != null && sense.blockN != previous?.blockN,
+                    lang = lemma.lang
                 )
             }
         }
@@ -246,14 +248,14 @@ private fun DetailContent(
             item {
                 SectionLabel(stringResource(R.string.word_forms))
                 Spacer(Modifier.height(4.dp))
-                FormsTable(detail.forms)
+                FormsTable(detail.forms, lemma.lang)
             }
         }
 
         // Идиомы за ромбом «◊» относятся к статье целиком, а не к значению.
         if (detail.idioms.isNotEmpty()) {
             item { SectionLabel("◊ " + stringResource(R.string.idioms_and_proverbs)) }
-            items(detail.idioms) { ex -> ExampleRow(ex) }
+            items(detail.idioms) { ex -> ExampleRow(ex, lemma.lang) }
         }
 
         // Cross-references
@@ -262,6 +264,7 @@ private fun DetailContent(
             items(detail.refs) { ref ->
                 RefRow(
                     ref = ref,
+                    lang = lemma.lang,
                     onNavigate = { id -> onNavigateToDetail(id) },
                     onSearch = { q -> onSearchQuery(q) }
                 )
@@ -290,6 +293,11 @@ private fun DetailContent(
  * Та же лемма в другой книге. Поля книг не сливаются: если `conflict` непуст,
  * книги расходятся в классе или части речи — это разночтение источников, а не
  * ошибка, поэтому обе статьи показываются рядом, без «победителя».
+ *
+ * `reviewed=1` значит, что пару уже смотрел человек (`tools/reviewed.tsv`) и
+ * подтвердил: расхождение настоящее. Тогда тревожная плашка «книги расходятся»
+ * не нужна — вместо неё показываем его же объяснение из `note`. Сам класс всё
+ * равно приходит от обеих книг, подтверждение не выбирает победителя.
  */
 @Composable
 private fun LinkedEntryRow(link: LinkedEntry, onNavigate: (Long) -> Unit) {
@@ -302,7 +310,7 @@ private fun LinkedEntryRow(link: LinkedEntry, onNavigate: (Long) -> Unit) {
         Text(
             text = buildAnnotatedString {
                 withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) {
-                    append(Marks.ce(link.headword))
+                    append(Marks.forLang(link.lang, link.headword).orEmpty())
                 }
                 if (link.homographN > 0) {
                     withStyle(
@@ -323,12 +331,20 @@ private fun LinkedEntryRow(link: LinkedEntry, onNavigate: (Long) -> Unit) {
             },
             style = MaterialTheme.typography.bodyMedium
         )
-        if (link.conflict.isNotEmpty()) {
+        val explanation = when {
+            link.reviewed && !link.note.isNullOrBlank() -> link.note
+            link.reviewed -> stringResource(R.string.link_reviewed)
+            link.conflict.isNotEmpty() ->
+                stringResource(R.string.link_conflict, link.conflict.joinToString(", "))
+            else -> null
+        }
+        if (explanation != null) {
             Text(
-                text = stringResource(R.string.link_conflict, link.conflict.joinToString(", ")),
+                text = explanation,
                 style = MaterialTheme.typography.labelSmall,
                 fontStyle = FontStyle.Italic,
-                color = MaterialTheme.colorScheme.tertiary
+                color = if (link.reviewed) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.tertiary
             )
         }
     }
@@ -375,7 +391,7 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
-private fun SenseBlock(sense: Sense, startsBlock: Boolean) {
+private fun SenseBlock(sense: Sense, startsBlock: Boolean, lang: String) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         // Блок `1.` / `2.` — это части речи внутри одной статьи
         // (хе̃наза: 1. прил. преждевременный, 2. нареч. преждевременно).
@@ -411,7 +427,7 @@ private fun SenseBlock(sense: Sense, startsBlock: Boolean) {
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.copyOnLongPress(plainGlosses(sense.glosses))
                 )
-                sense.examples.forEach { ExampleRow(it) }
+                sense.examples.forEach { ExampleRow(it, lang) }
             }
         }
     }
@@ -438,6 +454,10 @@ private fun plainGlosses(glosses: List<Gloss>): String = buildString {
     }
 }
 
+/** Классы чеченского перевода, как их печатает книга 2017: `адаптер (й, й)`. */
+private fun clsSuffix(cls: List<String>): String =
+    if (cls.isEmpty()) "" else cls.joinToString(", ", prefix = " (", postfix = ")")
+
 @Composable
 private fun glossesText(glosses: List<Gloss>) = buildAnnotatedString {
     val aside = SpanStyle(
@@ -449,14 +469,17 @@ private fun glossesText(glosses: List<Gloss>) = buildAnnotatedString {
         if (gloss.labels.isNotEmpty()) {
             withStyle(aside) { append(gloss.labels.joinToString(" ") + " ") }
         }
-        append(Marks.ru(gloss.text).orEmpty())
+        append(Marks.forLang(gloss.lang, gloss.text).orEmpty())
+        // Классный показатель перевода: у словарей рус->чеч он стоит при чеченском
+        // слове -- `адаптер (й, й)`, -- и в базе лежит в `glosses.gram.cls`.
+        if (gloss.cls.isNotEmpty()) withStyle(aside) { append(clsSuffix(gloss.cls)) }
         gloss.gov?.let { withStyle(aside) { append(" $it") } }
-        gloss.note?.let { withStyle(aside) { append(" (${Marks.ru(it)})") } }
+        gloss.note?.let { withStyle(aside) { append(" (${Marks.forLang(gloss.lang, it)})") } }
     }
 }
 
 @Composable
-private fun FormsTable(forms: List<Form>) {
+private fun FormsTable(forms: List<Form>, lang: String) {
     // Заголовочную форму репозиторий не отдаёт — она в шапке карточки
     val rest = forms.filter { !it.isHeadword }
 
@@ -500,7 +523,7 @@ private fun FormsTable(forms: List<Form>) {
                         modifier = Modifier.weight(0.4f)
                     )
                     Text(
-                        text = Marks.ce(form.form),
+                        text = Marks.forLang(lang, form.form).orEmpty(),
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier
                             .weight(0.6f)
@@ -512,8 +535,19 @@ private fun FormsTable(forms: List<Form>) {
     }
 }
 
+/**
+ * Пример или идиома.
+ *
+ * `examples.ce` / `examples.ru` названы по ЯЗЫКУ, а не по роли, поэтому порядок
+ * сторон на экране задаёт язык ЗАГОЛОВКА статьи: у `ада́птер` из словаря рус->чеч
+ * сверху должно стоять русское сочетание «адаптер не найден», а переводом под
+ * ним — «адаптер ца карийна», а не наоборот.
+ */
 @Composable
-private fun ExampleRow(example: Example) {
+private fun ExampleRow(example: Example, lang: String) {
+    val headSide = if (lang == Lang.RU) example.ruText.orEmpty() else example.ceText
+    val transSide = if (lang == Lang.RU) example.ceText else example.ruText
+    val transLang = Lang.other(lang)
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -525,7 +559,7 @@ private fun ExampleRow(example: Example) {
     ) {
         Text(
             text = buildAnnotatedString {
-                append(Marks.ce(example.ceText))
+                append(Marks.forLang(lang, headSide).orEmpty())
                 // «посл.» / «погов.» — это разряд примера, а не часть текста
                 if (example.kind != null && example.kind != "phrase") {
                     withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
@@ -535,33 +569,36 @@ private fun ExampleRow(example: Example) {
             },
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
-            modifier = Modifier.copyOnLongPress(example.ceText)
+            modifier = Modifier.copyOnLongPress(headSide)
         )
         // У части примеров перевод разбит на подпункты: «куьг таӀо — а) …, б) …»
         if (example.subs.isNotEmpty()) {
             example.subs.forEach { sub ->
                 Text(
-                    text = listOfNotNull(sub.letter?.let { "$it)" }, Marks.ru(sub.text), sub.gov)
-                        .joinToString(" "),
+                    text = listOfNotNull(
+                        sub.letter?.let { "$it)" },
+                        Marks.forLang(sub.lang, sub.text),
+                        sub.gov
+                    ).joinToString(" "),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontStyle = FontStyle.Italic,
                     modifier = Modifier.copyOnLongPress(sub.text)
                 )
             }
-        } else if (!example.ruText.isNullOrBlank()) {
+        } else if (!transSide.isNullOrBlank()) {
             Text(
-                text = Marks.ru(example.ruText).orEmpty(),
+                text = Marks.forLang(transLang, transSide).orEmpty(),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontStyle = FontStyle.Italic,
-                modifier = Modifier.copyOnLongPress(example.ruText)
+                modifier = Modifier.copyOnLongPress(transSide)
             )
         }
         // Буквальный перевод идиомы: (букв. все, кто мо́жет владе́ть па́лкой)
         if (!example.note.isNullOrBlank()) {
             Text(
-                text = "(" + listOfNotNull(example.noteKind, Marks.ru(example.note))
+                text = "(" + listOfNotNull(example.noteKind, Marks.forLang(transLang, example.note))
                     .joinToString(" ") + ")",
                 style = MaterialTheme.typography.labelSmall,
                 fontStyle = FontStyle.Italic,
@@ -574,6 +611,7 @@ private fun ExampleRow(example: Example) {
 @Composable
 private fun RefRow(
     ref: Ref,
+    lang: String,
     onNavigate: (Long) -> Unit,
     onSearch: (String) -> Unit
 ) {
@@ -600,7 +638,7 @@ private fun RefRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = Marks.ce(ref.toHeadword),
+                text = Marks.forLang(lang, ref.toHeadword).orEmpty(),
                 style = MaterialTheme.typography.bodyMedium.copy(
                     textDecoration = if (ref.toLemmaId != null) TextDecoration.Underline else TextDecoration.None
                 ),

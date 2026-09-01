@@ -460,11 +460,12 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            // Headword row
+            // Headword row. Знак надстрочный выбирается по языку ЗАГОЛОВКА: у статьи
+            // `ада́птер` из словаря рус→чеч он русский, а не чеченский.
             Row {
                 Text(
                     modifier = Modifier.alignByBaseline(),
-                    text = Marks.ce(hit.headword),
+                    text = Marks.forLang(hit.lang, hit.headword).orEmpty(),
                     style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -503,6 +504,10 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
                         color = MaterialTheme.colorScheme.tertiary
                     )
                 }
+                // Из какой книги статья. Один запрос отдаёт статьи из нескольких
+                // словарей сразу, и без подписи выдача выглядит как список повторов.
+                Spacer(Modifier.weight(1f))
+                DictBadgeChip(hit.dictBook, hit.dictYear, Modifier.alignByBaseline())
             }
 
             // Gram classes
@@ -529,7 +534,7 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
             ) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = Marks.ru(hit.matchedGloss).orEmpty(),
+                    text = Marks.forLang(hit.glossLang, hit.matchedGloss).orEmpty(),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.primary
@@ -547,7 +552,7 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
                                     append("${i + 1}. ")
                                 }
                             }
-                            append(Marks.ru(gloss).orEmpty())
+                            append(Marks.forLang(hit.glossLang, gloss).orEmpty())
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface

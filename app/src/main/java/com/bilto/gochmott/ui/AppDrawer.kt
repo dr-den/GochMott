@@ -74,10 +74,10 @@ fun AppDrawerContent(
             color = MaterialTheme.colorScheme.outlineVariant
         )
 
-        // «О словаре» стоит выше «О приложении»: это содержимое книги, ради
-        // которой приложение и существует, а не сведения о самой программе.
+        // «О словарях» стоит выше «О приложении»: это содержимое книг, ради
+        // которых приложение и существует, а не сведения о самой программе.
         NavigationDrawerItem(
-            label = { Text(stringResource(R.string.book_title)) },
+            label = { Text(stringResource(R.string.books_title)) },
             icon = { Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null) },
             selected = false,
             onClick = onBookClick,

@@ -51,16 +51,22 @@ import com.bilto.gochmott.model.Abbreviation
 import com.bilto.gochmott.model.AlphabetLetter
 import com.bilto.gochmott.model.BookLang
 import com.bilto.gochmott.model.BookParagraph
+import com.bilto.gochmott.model.BookRef
 import com.bilto.gochmott.model.DictionaryBook
 import com.bilto.gochmott.viewmodel.BookViewModel
 
 /**
- * Экраны вводной части словаря Мациева.
+ * Экраны вводных частей словарей.
  *
- * Все они устроены одинаково: шапка с названием раздела, под ней переключатель
+ * Три уровня: список книг («О словарях») -> разделы одной книги -> текст раздела.
+ * Средний и нижний устроены одинаково: шапка с названием, под ней переключатель
  * языка текста, дальше содержимое. Переключатель повторяется на каждом экране
  * (а не стоит один раз в меню), потому что решение «читать это по-чеченски»
  * принимается при чтении конкретного раздела, а не заранее.
+ *
+ * Заголовки и тексты берутся через `heading()`/`body()`: у словаря 1997 года
+ * предисловие напечатано только по-чеченски, а «Построение словаря» только
+ * по-русски, и подставить существующую сторону лучше, чем показать пустой экран.
  */
 
 // --------------------------------------------------------------------- каркас
@@ -144,7 +150,7 @@ private fun BookContent(
     val loaded = book
 
     BookScaffold(
-        title = if (loaded == null) stringResource(R.string.book_title) else title(loaded, language),
+        title = if (loaded == null) stringResource(R.string.books_title) else title(loaded, language),
         language = language,
         onLanguage = viewModel::setLanguage,
         onBack = onBack
@@ -159,6 +165,78 @@ private fun BookContent(
     }
 }
 
+// ------------------------------------------------------- список книг
+
+/**
+ * «О словарях» — верхний уровень. Строка на КНИГУ, а не на направление: у 1997
+ * и 2017 оба направления это две половины одной книги, и разводить их по разным
+ * строкам значило бы предлагать читателю выбор, которого он не делал.
+ */
+@Composable
+fun BooksListScreen(
+    onOpenBook: (String) -> Unit,
+    onBack: () -> Unit,
+    viewModel: BookViewModel = hiltViewModel()
+) {
+    val books by viewModel.books.collectAsStateWithLifecycle()
+    val language by viewModel.language.collectAsStateWithLifecycle()
+
+    BookScaffold(
+        title = stringResource(R.string.books_title),
+        language = language,
+        onLanguage = viewModel::setLanguage,
+        onBack = onBack
+    ) {
+        LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
+            items(books) { book ->
+                BookRefRow(book, language, onClick = { onOpenBook(book.code) })
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    thickness = 0.5.dp
+                )
+            }
+            item { Spacer(Modifier.height(24.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun BookRefRow(book: BookRef, lang: BookLang, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .copyOnLongPress(book.heading(lang), onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = book.heading(lang),
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = listOfNotNull(book.authors.ifBlank { null }, book.year?.toString())
+                    .joinToString(", "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (book.entries > 0) {
+                Text(
+                    text = stringResource(R.string.book_entries, book.entries),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
 // ------------------------------------------------------------------ содержание
 
 @Composable
@@ -169,13 +247,19 @@ fun BookHubScreen(
     onBack: () -> Unit,
     viewModel: BookViewModel = hiltViewModel()
 ) {
-    BookContent(viewModel, onBack, title = { book, lang -> book.title[lang] }) { book, lang ->
+    BookContent(viewModel, onBack, title = { book, lang -> book.heading(lang) }) { book, lang ->
         LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
             items(book.sections) { section ->
-                BookRow(section.title[lang], onClick = { onOpenSection(section.id) })
+                BookRow(section.heading(lang), onClick = { onOpenSection(section.id) })
             }
-            item { BookRow(book.abbreviationsTitle[lang], onOpenAbbreviations) }
-            item { BookRow(book.alphabetTitle[lang], onOpenAlphabet) }
+            // Список сокращений и алфавит напечатал только Мациев; у словарей
+            // 1997 и 2017 их нет, и строки-пустышки предлагать нечего.
+            if (book.abbreviations.isNotEmpty()) {
+                item { BookRow(book.abbreviationsTitle[lang], onOpenAbbreviations) }
+            }
+            if (book.alphabet.isNotEmpty()) {
+                item { BookRow(book.alphabetTitle[lang], onOpenAlphabet) }
+            }
             item {
                 Spacer(Modifier.height(16.dp))
                 Text(
@@ -223,7 +307,7 @@ fun BookSectionScreen(
     BookContent(
         viewModel, onBack,
         title = { book, lang ->
-            book.sections.firstOrNull { it.id == sectionId }?.title?.get(lang).orEmpty()
+            book.sections.firstOrNull { it.id == sectionId }?.heading(lang).orEmpty()
         }
     ) { book, lang ->
         val section = book.sections.firstOrNull { it.id == sectionId }

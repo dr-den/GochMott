@@ -12,7 +12,7 @@
 
 Выход: 0 — сошлось, 1 — есть расхождения. Годится для CI.
 """
-import argparse, json, sqlite3, sys
+import argparse, json, re, sqlite3, sys
 from collections import defaultdict
 
 # v3 -> v4: имя таблицы и колонок, которые переименованы
@@ -23,6 +23,8 @@ RENAMED = [
     ('glosses.ru_norm', 'glosses.text_norm', 'ключ перевода'),
     ('subs.ru', 'subs.text', 'подпункт примера'),
 ]
+
+EXPECT = 5      # держать синхронно с DB_USER_VERSION в сборщике
 
 OK, BAD = '  ok  ', '  РАЗОШЛОСЬ  '
 
@@ -71,7 +73,7 @@ def diff_sets(a, b, limit=8):
 
 def check_standalone(new, rep):
     ver = one(new, 'PRAGMA user_version')
-    rep.check(f'PRAGMA user_version = {ver} (ожидалось 4)', ver == 4)
+    rep.check(f'PRAGMA user_version = {ver} (ожидалось {EXPECT})', ver == EXPECT)
 
     tables = {r[0] for r in q(new, "SELECT name FROM sqlite_master WHERE type='table'")}
     need = {'dicts', 'lemmas', 'forms', 'senses', 'glosses', 'examples', 'subs',
@@ -143,17 +145,43 @@ def check_standalone(new, rep):
         rep.note(f'связей между словарями: {n}, из них с расхождениями: {c}')
         n2 = one(new, 'SELECT COUNT(*) FROM lemma_links WHERE a_dict_id = b_dict_id')
         rep.check('связи соединяют разные словари', n2 == 0, f'{n2} внутри одного')
+        r = one(new, 'SELECT COUNT(*) FROM lemma_links WHERE reviewed=1')
+        rep.note(f'связей, просмотренных человеком: {r}')
+        n3 = one(new, "SELECT COUNT(*) FROM lemma_links WHERE conflict <> '[]' AND reviewed=0")
+        rep.note(f'расхождений без решения: {n3} — они в conflicts.tsv')
 
 
 # --------------------------------------------------------------------------
 # Сверка со старой базой (v3), по одному словарю
 # --------------------------------------------------------------------------
 
+def resolve_code(new, code, rep):
+    """Код словаря, а не путь.
+
+    У сборщика флаг `--dict` берёт `CODE=PATH`, у сверки — только `CODE`.
+    Одинаковое имя при разном смысле — ошибка в моём CLI, поэтому здесь мы
+    прощаем очевидную путаницу: из `rawSources/maciev1961=work/x.jsonl`
+    вытаскиваем `maciev1961`, но говорим об этом вслух.
+    """
+    known = [r[0] for r in q(new, 'SELECT code FROM dicts ORDER BY priority')]
+    if code in known:
+        return code
+    guess = re.split(r'[\\/]', code.split('=')[0])[-1].strip()
+    if guess in known:
+        rep.note(f'принял код {guess!r}: флаг --code ждёт КОД словаря, а не путь '
+                 f'(это у сборщика --dict CODE=PATH)')
+        return guess
+    rep.check(f'словарь {code!r} есть в новой базе', False,
+              'СВЕРКА СОДЕРЖИМОГО НЕ ВЫПОЛНЕНА. Флаг --code ждёт код словаря;\n'
+              '        в базе есть: ' + ', '.join(known))
+    return None
+
+
 def check_against_old(old, new, code, rep, sample=12):
-    did = one(new, 'SELECT id FROM dicts WHERE code=?', (code,))
-    if did is None:
-        rep.check(f'словарь {code} есть в новой базе', False)
+    code = resolve_code(new, code, rep)
+    if code is None:
         return
+    did = one(new, 'SELECT id FROM dicts WHERE code=?', (code,))
 
     ver = one(old, 'PRAGMA user_version')
     rep.note(f'старая база: user_version = {ver}')
@@ -270,8 +298,10 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description='сверка dict.db v4 со старой v3')
     ap.add_argument('new', help='новая база')
     ap.add_argument('--old', help='старая база v3 (если есть — идёт полная сверка)')
-    ap.add_argument('--dict', default='maciev1961',
-                    help='код словаря в новой базе, с которым сверять старую')
+    ap.add_argument('--code', '--dict', dest='code', default='maciev1961',
+                    metavar='CODE',
+                    help='КОД словаря в новой базе, с которым сверять старую '
+                         '(не путь: у сборщика --dict CODE=PATH, здесь только CODE)')
     ap.add_argument('--sample', type=int, default=12, help='сколько примеров расхождений')
     args = ap.parse_args(argv)
 
@@ -282,9 +312,9 @@ def main(argv=None):
     check_standalone(new, rep)
 
     if args.old:
-        print(f'\n=== сверка со старой базой: {args.old} (словарь {args.dict})')
+        print(f'\n=== сверка со старой базой: {args.old} (словарь {args.code})')
         old = sqlite3.connect(f'file:{args.old}?mode=ro', uri=True)
-        check_against_old(old, new, args.dict, rep, args.sample)
+        check_against_old(old, new, args.code, rep, args.sample)
         old.close()
     else:
         rep.note('старая база не указана — сверка содержимого пропущена')

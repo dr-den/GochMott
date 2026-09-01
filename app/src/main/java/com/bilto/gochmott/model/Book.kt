@@ -1,8 +1,8 @@
 package com.bilto.gochmott.model
 
 /**
- * Вводная часть издания 1961 года: предисловие, слово редактора, правила
- * построения словаря, список сокращений и алфавит.
+ * Вводная часть книги: предисловие, правила построения словаря, а у Мациева ещё
+ * слово редактора, список сокращений и алфавит.
  *
  * В книге всё это напечатано дважды — по-русски и по-чеченски, параллельными
  * разделами. Поэтому [BookLang] переключает **язык самого текста Мациева**,
@@ -44,7 +44,41 @@ data class BookSection(
     private val ru: List<BookParagraph>,
     private val ce: List<BookParagraph>
 ) {
-    fun body(lang: BookLang): List<BookParagraph> = if (lang == BookLang.RU) ru else ce
+    /**
+     * Текст раздела. Если своей стороны у раздела нет — подставляем другую.
+     *
+     * Это не запасной вариант «на всякий случай», а обычное состояние: словарь
+     * 1997 года напечатал предисловие только по-чеченски, а «Построение словаря»
+     * только по-русски. Пустой экран вместо существующего текста был бы хуже,
+     * чем текст на другом языке — так же поступает и список сокращений.
+     */
+    fun body(lang: BookLang): List<BookParagraph> =
+        (if (lang == BookLang.RU) ru else ce).ifEmpty {
+            if (lang == BookLang.RU) ce else ru
+        }
+
+    fun heading(lang: BookLang): String = title[lang].ifBlank { title[lang.other()] }
+}
+
+/**
+ * Строка списка «О словарях»: книга, а не направление. У двуязычной книги
+ * (1997, 2017) оба направления показываются одной записью — читателю важна
+ * книга, а `ce->ru` и `ru->ce` это её половины.
+ *
+ * Собирается `tools/build_books_json.py` из `dicts`, поэтому [entries] не может
+ * разойтись с тем, что лежит в базе.
+ */
+data class BookRef(
+    val code: String,
+    val title: Bilingual,
+    val authors: String,
+    val year: Int?,
+    /** Сколько статей у книги в базе — сумма по обоим направлениям. */
+    val entries: Int,
+    /** Файл в `assets` с вводной частью этой книги. */
+    val asset: String
+) {
+    fun heading(lang: BookLang): String = title[lang].ifBlank { title[lang.other()] }
 }
 
 /** Статья списка сокращений: `перен.` — «переносное значение» / «кечдина маьӀна». */
@@ -53,7 +87,12 @@ data class Abbreviation(val short: String, val expansion: Bilingual)
 /** Строка таблицы алфавита: начертание буквы и её название. */
 data class AlphabetLetter(val letter: String, val name: String)
 
+/**
+ * Вводная часть одной книги. Списка сокращений и алфавита у словарей 1997 и 2017
+ * нет вовсе, поэтому их разделы пустые — экраны просто не предлагаются.
+ */
 data class DictionaryBook(
+    val code: String,
     val title: Bilingual,
     val source: String,
     val sections: List<BookSection>,
@@ -61,4 +100,6 @@ data class DictionaryBook(
     val abbreviations: List<Abbreviation>,
     val alphabetTitle: Bilingual,
     val alphabet: List<AlphabetLetter>
-)
+) {
+    fun heading(lang: BookLang): String = title[lang].ifBlank { title[lang.other()] }
+}

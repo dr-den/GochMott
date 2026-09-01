@@ -233,7 +233,7 @@ private fun QuickEntry(hit: LemmaHit, onClick: () -> Unit) {
         Row {
             Text(
                 modifier = Modifier.alignByBaseline(),
-                text = Marks.ce(hit.headword),
+                text = Marks.forLang(hit.lang, hit.headword).orEmpty(),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
@@ -258,6 +258,8 @@ private fun QuickEntry(hit: LemmaHit, onClick: () -> Unit) {
                     color = MaterialTheme.colorScheme.secondary
                 )
             }
+            Spacer(Modifier.weight(1f))
+            DictBadgeChip(hit.dictBook, hit.dictYear, Modifier.alignByBaseline())
         }
         hit.firstSenses.forEachIndexed { i, gloss ->
             Text(
@@ -265,7 +267,7 @@ private fun QuickEntry(hit: LemmaHit, onClick: () -> Unit) {
                     if (hit.firstSenses.size > 1) {
                         withStyle(SpanStyle(fontWeight = FontWeight.Medium)) { append("${i + 1}. ") }
                     }
-                    append(Marks.ru(gloss).orEmpty())
+                    append(Marks.forLang(hit.glossLang, gloss).orEmpty())
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant

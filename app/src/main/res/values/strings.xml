@@ -4,7 +4,7 @@
     <string name="email_client_not_found">Email client not found</string>
     <string name="app_version_text">App version</string>
     <string name="found_error_q">Found an error in an entry or translation? Let us know.</string>
-    <string name="ch_ru_dict">Chechen-Russian Dictionary</string>
+    <string name="ch_ru_dict">Chechen-Russian and Russian-Chechen dictionaries</string>
     <string name="about_app">About app</string>
     <string name="article">Entry</string>
     <string name="back">Back</string>
@@ -82,10 +82,17 @@
     <string name="show_ce_length_hint">ха̃дадала instead of хададала</string>
     <string name="show_ru_stress">Russian stress</string>
     <string name="show_ru_stress_hint">ка́ждый раз instead of каждый раз</string>
-    <string name="book_title">About the dictionary</string>
     <string name="book_lang_ru">Русский</string>
     <string name="book_lang_ce">Нохчийн</string>
     <string name="other_books">In other dictionaries</string>
     <string name="link_conflict">dictionaries differ: %1$s</string>
     <string name="source">Source</string>
+    <string name="dict_book_maciev1961">Matsiyev, 1961</string>
+    <string name="dict_book_math1997">Mathematics, 1997</string>
+    <string name="dict_book_comp2017">Computing, 2017</string>
+    <string name="books_title">About the dictionaries</string>
+    <string name="books_subtitle">Five dictionaries in three books</string>
+    <string name="link_reviewed">checked by hand</string>
+    <string name="book_entries">%1$d entries</string>
+    <string name="book_note_title">A note on the text in the app</string>
 </resources>

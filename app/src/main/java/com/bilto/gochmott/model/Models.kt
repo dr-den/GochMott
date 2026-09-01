@@ -1,9 +1,27 @@
 package com.bilto.gochmott.model
 
+/** Коды языков базы. Совпадают с `lemmas.lang`, `forms.lang`, `glosses.lang`. */
+object Lang {
+    const val CE = "ce"
+    const val RU = "ru"
+
+    /** Сторона перевода для стороны заголовка и наоборот. База двуязычная. */
+    fun other(lang: String?): String = if (lang == RU) CE else RU
+}
+
 data class LemmaHit(
     val id: Long,
     /** Заголовок статьи как в книге — со знаками долготы. */
     val headword: String,
+    /**
+     * Язык заголовка (`lemmas.lang` = `dicts.lang_src`). В базе есть словари обоих
+     * направлений, поэтому по нему выбирается и нужный надстрочный знак, и порядок
+     * сторон в примерах: у статьи `ада́птер` (рус→чеч) заголовок русский.
+     */
+    val lang: String = Lang.CE,
+    /** `dicts.book` — книга, а не направление: у двуязычной книги оно общее. */
+    val dictBook: String = "",
+    val dictYear: Int? = null,
     /** Номер омонима; 0 — статья не омоним (в БД `homonym IS NULL`). */
     val homographN: Int,
     val pos: String?,
@@ -27,6 +45,9 @@ data class LemmaHit(
     val matchedGloss: String? = null
 ) {
     val indeclinable: Boolean get() = "нескл." in labels
+
+    /** Язык переводов этой статьи: сторона, противоположная заголовку. */
+    val glossLang: String get() = Lang.other(lang)
 }
 
 data class GramClass(
@@ -54,6 +75,13 @@ data class Form(
  */
 data class Gloss(
     val text: String,
+    /** Язык перевода (`glosses.lang` = `dicts.lang_tgt`). */
+    val lang: String,
+    /**
+     * Классные показатели чеченского перевода, как их печатает книга: `(б, д)` —
+     * ед. и мн. Приходят из `glosses.gram.cls`; у словарей чеч→рус пусто.
+     */
+    val cls: List<String>,
     val sep: String?,
     /** Уточнение в скобках: у «рука́» — «кисть». */
     val note: String?,
@@ -80,6 +108,7 @@ data class Sub(
     val letter: String?,
     /** Перевод подпункта; язык — сторона перевода словаря, см. [Gloss.text]. */
     val text: String,
+    val lang: String,
     val note: String?,
     val gov: String?
 )
@@ -128,11 +157,20 @@ data class DictSource(
 data class LinkedEntry(
     val lemmaId: Long,
     val headword: String,
+    /** Язык заголовка связанной статьи — для выбора надстрочного знака. */
+    val lang: String,
     val homographN: Int,
     val dictTitle: String,
     val method: String,
     val confidence: Double,
-    val conflict: List<String>
+    val conflict: List<String>,
+    /**
+     * `reviewed=1` — человека уже спросили, и он подтвердил связь (`reviewed.tsv`).
+     * Значит расхождение настоящее, а не подозрение сборщика: тревожную плашку
+     * показывать незачем, достаточно [note] — его же объяснения.
+     */
+    val reviewed: Boolean = false,
+    val note: String? = null
 )
 
 data class EntryDetail(

@@ -13,7 +13,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.bilto.gochmott.model.SearchDirection
+import androidx.navigation.NavBackStackEntry
 import com.bilto.gochmott.viewmodel.AboutViewModel
+import com.bilto.gochmott.viewmodel.BookViewModel
 import com.bilto.gochmott.viewmodel.PrivacyPolicyViewModel
 import com.bilto.gochmott.viewmodel.SearchViewModel
 import kotlinx.coroutines.launch
@@ -23,12 +25,23 @@ sealed class Screen(val route: String) {
     object About : Screen("about")
     object PrivacyPolicy : Screen("privacy_policy")
 
-    /** Вводная часть словаря: содержание и разделы книги 1961 года. */
-    object Book : Screen("book")
-    object BookAbbreviations : Screen("book/abbreviations")
-    object BookAlphabet : Screen("book/alphabet")
-    object BookSection : Screen("book/section/{sectionId}") {
-        fun createRoute(sectionId: String) = "book/section/$sectionId"
+    /**
+     * Вводные части словарей. Три уровня: список книг -> разделы книги -> текст.
+     * Код книги стоит в маршруте, а не в состоянии: [BookViewModel] достаёт его
+     * из `SavedStateHandle`, и каждый экран знает, чью книгу показывает.
+     */
+    object Books : Screen("books")
+    object Book : Screen("book/{bookCode}") {
+        fun createRoute(bookCode: String) = "book/$bookCode"
+    }
+    object BookAbbreviations : Screen("book/{bookCode}/abbreviations") {
+        fun createRoute(bookCode: String) = "book/$bookCode/abbreviations"
+    }
+    object BookAlphabet : Screen("book/{bookCode}/alphabet") {
+        fun createRoute(bookCode: String) = "book/$bookCode/alphabet"
+    }
+    object BookSection : Screen("book/{bookCode}/section/{sectionId}") {
+        fun createRoute(bookCode: String, sectionId: String) = "book/$bookCode/section/$sectionId"
         const val ARG = "sectionId"
     }
     object Detail : Screen("detail/{lemmaId}") {
@@ -37,6 +50,13 @@ sealed class Screen(val route: String) {
     }
 }
 
+
+/** Аргумент маршрута с кодом книги — его же читает [BookViewModel]. */
+private fun bookCodeArg() =
+    navArgument(BookViewModel.BOOK_CODE_ARG) { type = NavType.StringType }
+
+private fun NavBackStackEntry.bookCode(): String? =
+    arguments?.getString(BookViewModel.BOOK_CODE_ARG)
 
 sealed class DictDeepLink {
     data class Search(val query: String, val direction: SearchDirection? = null) : DictDeepLink()
@@ -68,7 +88,7 @@ fun GochMottNavGraph(
                     AppDrawerContent(
                         onBookClick = {
                             scope.launch { drawerState.close() }
-                            navController.navigate(Screen.Book.route)
+                            navController.navigate(Screen.Books.route)
                         },
                         onAboutClick = {
                             scope.launch { drawerState.close() }
@@ -100,28 +120,45 @@ fun GochMottNavGraph(
             )
         }
 
-        composable(Screen.Book.route) {
+        composable(Screen.Books.route) {
+            BooksListScreen(
+                onOpenBook = { code -> navController.navigate(Screen.Book.createRoute(code)) },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.Book.route, arguments = listOf(bookCodeArg())) { entry ->
+            val code = entry.bookCode() ?: return@composable
             BookHubScreen(
-                onOpenSection = { id -> navController.navigate(Screen.BookSection.createRoute(id)) },
-                onOpenAbbreviations = { navController.navigate(Screen.BookAbbreviations.route) },
-                onOpenAlphabet = { navController.navigate(Screen.BookAlphabet.route) },
+                onOpenSection = { id ->
+                    navController.navigate(Screen.BookSection.createRoute(code, id))
+                },
+                onOpenAbbreviations = {
+                    navController.navigate(Screen.BookAbbreviations.createRoute(code))
+                },
+                onOpenAlphabet = {
+                    navController.navigate(Screen.BookAlphabet.createRoute(code))
+                },
                 onBack = { navController.popBackStack() }
             )
         }
 
         composable(
             route = Screen.BookSection.route,
-            arguments = listOf(navArgument(Screen.BookSection.ARG) { type = NavType.StringType })
+            arguments = listOf(
+                bookCodeArg(),
+                navArgument(Screen.BookSection.ARG) { type = NavType.StringType }
+            )
         ) { backStackEntry ->
             val id = backStackEntry.arguments?.getString(Screen.BookSection.ARG) ?: return@composable
             BookSectionScreen(sectionId = id, onBack = { navController.popBackStack() })
         }
 
-        composable(Screen.BookAbbreviations.route) {
+        composable(Screen.BookAbbreviations.route, arguments = listOf(bookCodeArg())) {
             AbbreviationsScreen(onBack = { navController.popBackStack() })
         }
 
-        composable(Screen.BookAlphabet.route) {
+        composable(Screen.BookAlphabet.route, arguments = listOf(bookCodeArg())) {
             AlphabetScreen(onBack = { navController.popBackStack() })
         }
 

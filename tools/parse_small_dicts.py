@@ -136,39 +136,112 @@ def paragraphs(path):
 # 2. Приведение текста
 # --------------------------------------------------------------------------
 
-_CYR = re.compile(r'[а-яёА-ЯЁӀ]')
+# Весь кириллический блок, а не только А-Я: `І` U+0406 лежит ниже `А` U+0410,
+# и по узкому диапазону «могІа» не опознавалось как слово вовсе.
+_CYR = re.compile(r'[\u0400-\u04FF]')
 _SOFT = '­'          # мягкий перенос из колонок
-_LATIN_PAL = {'I': PAL, 'І': PAL, 'l': PAL, 'ӏ': PAL}
+# Латинские двойники кириллицы. Раньше здесь была только палочка, и этого не
+# хватило: `find_homoglyphs.py` нашёл в словаре 2017 года «aьзнийн» и «гӀaлат»
+# с латинской `a`. Поиск их находит (нормализатор переводит), а в карточке
+# стоит чужая буква.
+# ВНИМАНИЕ: цифры `1` здесь быть не должно. В ChechenNormalizer она означает
+# палочку — это способ набрать `Ӏ` с обычной раскладки, и для КЛЮЧА ПОИСКА
+# верно. Но здесь мы чиним ТЕКСТ КНИГИ, где `1` — номер значения: «тайпа д; 1.»
+# превращалось в «тайпа д; Ӏ.», номер переставал опознаваться и уезжал
+# в заголовок вместе с грамматикой. Так пропали `тайпа`, `хьаьрк`, `йист`.
+_LATIN_PAL = {
+    'I': PAL, 'І': PAL, 'l': PAL, 'ӏ': PAL, 'i': PAL, '|': PAL, 'і': PAL,
+    'a': 'а', 'c': 'с', 'e': 'е', 'o': 'о', 'p': 'р', 'x': 'х', 'y': 'у', 'k': 'к',
+    'A': 'А', 'B': 'В', 'C': 'С', 'E': 'Е', 'H': 'Н', 'K': 'К', 'M': 'М',
+    'O': 'О', 'P': 'Р', 'T': 'Т', 'X': 'Х', 'Y': 'У',
+}
+
+
+_LAT = re.compile(r'[A-Za-z]')
+_TOKEN = re.compile(r'[A-Za-z\u0400-\u04FF\u0300-\u036f]+')
+
+# Буквы, у которых двойника НЕТ, — по ним и опознаётся алфавит слова.
+# `г`, `л`, `т` бывают только кириллицей; `v`, `b`, `d` — только латиницей.
+_ONLY_CYR = set('бгджзилмнптфцчшщъыьэюяБГДЖЗИЛМНПФЦЧШЩЪЫЬЭЮЯ') | {PAL, 'ӏ'}
+_ONLY_LAT = set('bdfghjlnqrstuvwzDFGIJLNQRSUVWZ') - set(_LATIN_PAL)
+
+
+def _script_of(token):
+    """Какого алфавита слово: 'ce' | 'lat' | 'mixed'.
+
+    Сначала ищем буквы БЕЗ двойника — они решают вопрос сразу: `г`, `л`, `т`
+    бывают только кириллицей, `v`, `b`, `d` только латиницей.
+
+    Но слово может целиком состоять из двойников — «хIокху» это х-о-к-х-у плюс
+    палочка, и ни одна буква ничего не доказывает. Тогда решаем большинством:
+    пять кириллических против одной латинской — слово кириллическое.
+    """
+    bare = ''.join(c for c in token if ud.category(c) != 'Mn')
+    cyr_only = any(c in _ONLY_CYR for c in bare)
+    lat_only = any(c in _ONLY_LAT for c in bare)
+    if cyr_only and lat_only:
+        return 'mixed'          # «терминалаvba» — не наше дело, чинить нечего
+    if cyr_only:
+        return 'ce'
+    if lat_only:
+        return 'lat'
+    n_cyr = sum(1 for c in bare if _CYR.match(c))
+    n_lat = sum(1 for c in bare if _LAT.match(c))
+    return 'ce' if n_cyr > n_lat else 'lat'
 
 
 def fix_palochka(text):
-    """Латинская `I` -> `Ӏ`, но только рядом с кириллицей.
+    """Латинский двойник -> кириллица там, где слово опознано как кириллическое.
 
-    `дIа` -> `дӀа`, одиночная `I` (буква раздела) -> `Ӏ`, а `shift`, `dvd`
-    и `opendIct` остаются латиницей: там соседи — тоже латиница.
+    Смотрим на СЛОВО, а не на соседей: в «гӀaлат» латинские `I` и `a` стоят
+    рядом и по правилу соседа блокировали бы друг друга. Зато `г`, `л`, `т`
+    двойников не имеют — значит слово кириллическое, и обе буквы чинятся.
+
+    `opendIct` и `shift` опознаются по `d`, `n`, `s` как латинские и остаются
+    как есть; «терминалаvba» — спорное (есть и `н`, и `v`), не трогаем вовсе,
+    такие ловит find_homoglyphs.py.
+
+    Одиночная буква раздела `I` двойников не содержит и опознаться не может —
+    для неё остаётся прежнее правило соседа.
     """
     if not text:
         return text
+
+    def fix_token(m):
+        tok = m.group(0)
+        if _script_of(tok) != 'ce':
+            return tok
+        return ''.join(_LATIN_PAL.get(c, c) for c in tok)
+
+    text = _TOKEN.sub(fix_token, text)
+
+    # то, что не попало ни в одно слово: одиночная `I`, `1`, `|`
     out = list(text)
     for i, ch in enumerate(out):
         if ch not in _LATIN_PAL:
             continue
-        left = out[i - 1] if i else ''
+        left = text[i - 1] if i else ''
         right = text[i + 1] if i + 1 < len(text) else ''
-        alone = not (left.isalpha() or right.isalpha())
-        if alone or _CYR.match(left or '') or _CYR.match(right or ''):
-            out[i] = _LATIN_PAL[ch]
+        if left.isalpha() or right.isalpha():
+            continue
+        out[i] = _LATIN_PAL[ch]
     return ''.join(out)
 
 
 def clean(text, palochka=True):
+    """НЕ обрезает края прогона.
+
+    Граница слова в .odt часто набрана отдельным светлым прогоном из одного
+    пробела: `[b]«m модульца n дарже»` `[.]« »` `[b]«~»`. Обрезав края, мы
+    склеим соседние прогоны вплотную и получим «даржецадиснарг». Пробелы
+    снимаются один раз — там, где собирается готовое поле.
+    """
     if text is None:
         return None
     t = ud.normalize('NFC', text).replace(_SOFT, '')
     if palochka:
         t = fix_palochka(t)
-    t = re.sub(r'[ \t ]+', ' ', t)
-    return t.strip()
+    return re.sub(r'\s+', ' ', t)
 
 
 # Копула -> классный показатель. 1997 пишет «аре ю», 2017 «(й, й)».
@@ -189,6 +262,10 @@ def parse_cls(text):
 def split_glosses(text):
     """«ослабление; утомление, изнеможение» -> глоссы с разделителем ПЕРЕД.
 
+    Текст перевода лежит в поле `text`, а не `ru`: у словаря рус->чеч перевод
+    чеченский, и ключ `ru` был бы враньём, вкомпилированным в формат. Язык
+    задаётся направлением словаря (`dicts.lang_tgt`), а не именем поля.
+
     Внутри скобок не режем: у перевода «хакер (в, б)» запятая разделяет
     классные показатели ед. и мн. числа, а не два перевода.
     """
@@ -202,21 +279,21 @@ def split_glosses(text):
         if ch == '\x00' and depth == 0:
             piece = ''.join(cur).strip(' .')
             if piece:
-                out.append({'ru': piece, 'sep': sep, 'labels': [],
+                out.append({'text': piece, 'sep': sep, 'labels': [],
                             'note': None, 'gov': None})
             sep, cur = None, []
             continue
         if ch in ',;' and depth == 0:
             piece = ''.join(cur).strip(' .')
             if piece:
-                out.append({'ru': piece, 'sep': sep, 'labels': [],
+                out.append({'text': piece, 'sep': sep, 'labels': [],
                             'note': None, 'gov': None})
             sep, cur = ch, []
             continue
         cur.append(ch)
     piece = ''.join(cur).strip(' .')
     if piece:
-        out.append({'ru': piece, 'sep': sep, 'labels': [], 'note': None, 'gov': None})
+        out.append({'text': piece, 'sep': sep, 'labels': [], 'note': None, 'gov': None})
     return out
 
 
@@ -255,7 +332,7 @@ def merge_ws(runs):
     i = 0
     while i < len(runs):
         tag, tx = runs[i]
-        if (out and tag == '.' and not tx.strip()
+        if (out and tag == '.' and tx.strip() in ('', '-')
                 and out[-1][0].startswith('b')
                 and i + 1 < len(runs) and runs[i + 1][0].startswith('b')):
             out[-1][1] += tx
@@ -337,6 +414,8 @@ def parse_math_ce(paras, lo, hi, problems):
     for i in range(lo, hi):
         runs = merge_ws([[t, clean(x, palochka=True)] for t, x in paras[i] if x])
         runs = [r for r in runs if r[1]]
+        while runs and not runs[0][1].strip():
+            runs.pop(0)
         if not runs:
             continue
         letter = is_letter_heading(runs)
@@ -352,14 +431,19 @@ def parse_math_ce(paras, lo, hi, problems):
         k, head_parts, gram = 0, [], None
         while k < len(runs):
             tag, text = runs[k]
+            if _SEE_ONLY.match(text):
+                break            # «хь.» бывает и жирным курсивом — это не грамматика
             if tag == 'bi' and gram is None:
                 gram = text
             elif tag.startswith('b'):
                 if _ONLY_NO.match(text):     # жирное «1.» — уже тело статьи
                     break
                 head_parts.append(text)
-            elif tag == '.' and text.strip() in ('//', '/'):
-                head_parts.append(text.strip())
+            elif tag == '.' and text.strip() in ('//', '/', ''):
+                head_parts.append(text.strip() or ' ')
+            elif (tag == '.' and gram is None
+                  and re.fullmatch(r'\s*[а-яё]{1,2}\s*;\s*', text)):
+                head_parts.append(text)      # « ю; » светлым — тоже часть головы
             else:
                 break
             k += 1
@@ -381,12 +465,44 @@ def parse_math_ce(paras, lo, hi, problems):
         hw, why = decap(hw, prev_hw)
         if why:
             problems.append(('math1997_ce', i, why, hw))
+        hw, first_no = strip_head_sense(hw)
+        hw, hom = strip_homonym(hw)
         stem, hw = split_stem(hw)
-        senses, xrefs = collect_body(rest, hw, stem, src_lang='ce')
-        entries.append(mk_entry(hw, senses, xrefs, i, cls_sg=cls_sg, cls_pl=cls_pl,
+        senses, xrefs = collect_body(rest, hw, stem, src_lang='ce',
+                                     first_no=first_no)
+        entries.append(mk_entry(hw, senses, xrefs, i, homonym=hom,
+                                cls_sg=cls_sg, cls_pl=cls_pl,
                                 forms=forms, gram={'stem': stem} if stem else {}))
         prev_hw = hw
     return entries
+
+
+_HOM = re.compile(r'(?<=[а-яёӀ])([1-9])\s*$')
+
+
+_HEAD_NO = re.compile(r'\s+(\d)\s*\.\s*$')
+
+
+def strip_head_sense(head):
+    """«единица 1. » -> («единица», 1). Номер первого значения бывает набран
+    тем же жирным прогоном, что и заголовок, — и уезжал в заголовок целиком."""
+    m = _HEAD_NO.search(head or '')
+    if not m:
+        return head, None
+    return head[:m.start()], int(m.group(1))
+
+
+def strip_homonym(hw):
+    """«могӀа1» -> («могӀа», 1). Номер омонима напечатан цифрой вплотную к слову.
+
+    Оставлять его в заголовке нельзя не только из-за вида: ChechenNormalizer
+    считает `1` способом набрать палочку с обычной раскладки, и ключ поиска
+    превращается в несуществующее «могӀаӀ» — статья не находится вообще.
+    """
+    m = _HOM.search(hw or '')
+    if not m:
+        return hw, None
+    return hw[:m.start()].strip(), int(m.group(1))
 
 
 def split_stem(hw):
@@ -404,10 +520,28 @@ def split_stem(hw):
 _SENSE_NO = re.compile(r'(?:^|(?<=[\s;]))(\d)\s*\.\s*')
 _ONLY_NO = re.compile(r'^\s*(\d)\s*\.\s*$')
 _ONLY_PUNCT = re.compile(r'^[\s;,.:()\-–—/]*$')
-_SEE = re.compile(r'^хь\s*\.\s*')          # «хь.» = «см.» в этих словарях
+# «хь.» = «хьажа» = «см.». Набрано как придётся: светлым (24 раза), курсивом (3)
+# и жирным курсивом (1) — то есть тем же стилем, что и грамматический блок.
+_SEE = re.compile(r'^хь\s*\.\s*')
+_SEE_ONLY = re.compile(r'^\s*хь\s*\.\s*$')
 
 
-def collect_body(rest, hw, stem, src_lang):
+def strip_edges(text):
+    """Снять служебный маркер границы и тире-разделитель с обоих концов.
+
+    `–` разделяет словосочетание и перевод, но по прогонам он попадает то в
+    конец жирного, то в начало светлого — зависит от того, как typesetter
+    поставил пробел.
+    """
+    t = (text or '').replace('\x00', ' ')
+    # длинное тире — всегда разделитель; обычный дефис — только если он отделён
+    # пробелом, иначе снесём половину слова: «n-й степени», «кросс-платформин»
+    t = re.sub(r'^\s*(?:[–—]|-(?=\s))\s*', '', t)
+    t = re.sub(r'\s*(?:[–—]|(?<=\s)-)\s*$', '', t)
+    return re.sub(r'\s+', ' ', t).strip()
+
+
+def collect_body(rest, hw, stem, src_lang, first_no=None):
     """rest — прогоны после заголовка и грамматики.
 
     Светлый прогон — текст на языке перевода, жирный — словосочетание на языке
@@ -424,12 +558,12 @@ def collect_body(rest, hw, stem, src_lang):
         мусор, а не начало словосочетания.
     """
     senses, xrefs = {}, []
-    cur_no = None
+    cur_no = first_no
     pending_head = None
     carry = ''      # `~`, оставшийся в конце светлого прогона
-    buf = []
+    buf = []        # список, а не строка: flush() чистит его на месте
 
-    box = {'carry': ''}
+    box = {'carry': '', 'see': False, 'done': False}
 
     def set_carry(v):
         box['carry'] = v
@@ -444,10 +578,10 @@ def collect_body(rest, hw, stem, src_lang):
     def flush():
         """Накопленный светлый текст — это либо переводы заголовка, либо
         перевод предыдущего словосочетания."""
-        nonlocal buf, pending_head, cur_no
+        nonlocal pending_head, cur_no
         nonlocal_carry()
         text = ''.join(buf).strip()
-        buf = []
+        del buf[:]
         # «...выражение;~» + жирное « цхьалхе бан » = «~ цхьалхе бан»: тильду
         # набрали светлым, но относится она к следующему словосочетанию
         if text.endswith('~'):
@@ -456,8 +590,22 @@ def collect_body(rest, hw, stem, src_lang):
         if not text:
             return
         if _SEE.match(text):
-            xrefs.append({'rel': 'см.', 'target': None, 'homonyms': []})
-            return
+            tail = _SEE.sub('', text).strip(' ;')
+            if pending_head is None:
+                # отсылка всей статьи: «ноль хь. нуль». Цель бывает в том же
+                # прогоне («хь. саттар»), а бывает следующим жирным («хь.» +
+                # «сакхт») — первый случай это 674, второй 110.
+                xrefs.append({'rel': 'см.', 'target': tail or None, 'homonyms': []})
+                return
+            # отсылка ОДНОГО словосочетания к другому: «~ нацело хь. ~ без
+            # остатка». Это не отсылка статьи, и делать её такой нельзя —
+            # «деление» уехало бы к «~ без остатка». Оставляем текстом, как
+            # напечатано, а следующий жирный — это цель, а не новое сочетание.
+            if not box['done']:
+                box['see'] = box['done'] = True
+                buf.extend(['хь. ', tail])
+                return
+            # второй раз по тому же тексту не заходим: он уже собран целиком
         parts = _SENSE_NO.split(text)
         for k, piece in enumerate(parts):
             if k % 2 == 1:
@@ -468,13 +616,16 @@ def collect_body(rest, hw, stem, src_lang):
                 continue
             if pending_head is None:
                 for g in split_glosses(piece):
-                    g['ru'], cls = strip_cls(g['ru'])
+                    g['text'] = g['text'].replace('\x00', ' ').strip()
+                    g['text'], cls = strip_cls(g['text'])
+                    g['text'] = re.sub(r'\s+', ' ', g['text']).strip()
                     if cls:
                         g['gram'] = {'cls': cls}
-                    if g['ru']:
+                    if g['text']:
                         sense(cur_no)['glosses'].append(g)
             else:
                 coll = expand_tilde(pending_head, hw, stem)
+                piece = strip_edges(piece)
                 ru, ce = (piece, coll) if src_lang == 'ce' else (coll, piece)
                 sense(cur_no)['examples'].append(
                     {'ce': ce, 'ru': ru, 'kind': 'phrase', 'labels': [],
@@ -486,7 +637,13 @@ def collect_body(rest, hw, stem, src_lang):
             buf.append(text)
             continue
         if tag in ('i', 'bi'):
-            buf.append(f' ({text.strip(" ()")})\x00')
+            inner = text.strip(' ()')
+            if parse_cls(inner):
+                # показатель перевода: «хакер (в, б)» -> граница глосса
+                buf.append(f' ({inner})\x00')
+            else:
+                # курсивом бывает и просто часть текста — «(b, c)» в формуле
+                buf.append(' ' + text)
             continue
         # дальше только жирный
         m = _ONLY_NO.match(text)
@@ -498,15 +655,28 @@ def collect_body(rest, hw, stem, src_lang):
             buf.append(text)
             continue
         flush()
-        head_txt = text.strip(' ;')
-        head_txt = re.sub(r'\s*[–—-]\s*$', '', head_txt)   # «… – » перед переводом
+        if box['see']:
+            # флаг поднят внутри flush(): этот жирный — цель отсылки
+            # словосочетания, а не начало нового
+            box['see'] = False
+            buf.append(' ' + expand_tilde(text.strip(' ;'), hw, stem))
+            continue
+        # Тильду приклеиваем к СЫРОМУ тексту, до обрезки краёв. Пробел вокруг
+        # неё — значащий: по предисловию «~» замещает заглавное слово ровно
+        # там, где стоит, поэтому «;~» + « матрица » это «~ матрица» ->
+        # «цхьааллин матрица» (два слова), а «;~» + «ан функци» это «~ан функци»
+        # -> «гайтаман функци» (одно). Обрезав пробел заранее, мы теряем
+        # единственный признак, который их различает.
+        raw = text
         if box['carry']:
-            head_txt = box['carry'] + head_txt
+            raw = box['carry'] + raw
             box['carry'] = ''
+        head_txt = strip_edges(raw.rstrip().rstrip(';'))
         if xrefs and xrefs[-1]['target'] is None:
             xrefs[-1]['target'] = head_txt
             continue
         pending_head = head_txt
+        box['done'] = False
     flush()
     if xrefs and xrefs[-1]['target'] is None:
         xrefs.pop()
@@ -514,11 +684,12 @@ def collect_body(rest, hw, stem, src_lang):
     return [senses[n] for n in order], xrefs
 
 
-def mk_entry(hw, senses, xrefs, src_ref, cls_sg=(), cls_pl=(), forms=(), gram=None):
+def mk_entry(hw, senses, xrefs, src_ref, cls_sg=(), cls_pl=(), forms=(), gram=None,
+             homonym=None):
     return {
-        'id': hw,
+        'id': hw if homonym is None else f'{hw}-{homonym}',
         'headword': hw,
-        'homonym': None,
+        'homonym': homonym,
         'pos': [],
         'labels': [],
         'cls_sg': list(cls_sg),
@@ -548,6 +719,8 @@ def parse_simple(paras, lo, hi, code, src_lang, problems, letters_eat=False):
     for i in range(lo, hi):
         runs = merge_ws([[t, clean(x)] for t, x in paras[i] if x])
         runs = [r for r in runs if r[1]]
+        while runs and not runs[0][1].strip():
+            runs.pop(0)
         if not runs:
             continue
         letter = is_letter_heading(runs)
@@ -565,7 +738,7 @@ def parse_simple(paras, lo, hi, code, src_lang, problems, letters_eat=False):
         head_parts = []
         while k < len(runs):
             tag, text = runs[k]
-            if tag == '.' and text.strip() not in ('//', '/'):
+            if tag == '.' and text.strip() not in ('//', '/', ''):
                 break
             head_parts.append(text)
             k += 1
@@ -582,9 +755,12 @@ def parse_simple(paras, lo, hi, code, src_lang, problems, letters_eat=False):
         head, why = decap(head, prev_hw)
         if why:
             problems.append((code, i, why, head))
+        head, first_no = strip_head_sense(head)
+        head, hom = strip_homonym(head)
         stem, hw = split_stem(head)
-        senses, xrefs = collect_body(rest, hw, stem, src_lang=src_lang)
-        entries.append(mk_entry(hw, senses, xrefs, i,
+        senses, xrefs = collect_body(rest, hw, stem, src_lang=src_lang,
+                                     first_no=first_no)
+        entries.append(mk_entry(hw, senses, xrefs, i, homonym=hom,
                                 cls_sg=cls_head[:1], cls_pl=cls_head[1:2],
                                 gram={'stem': stem} if stem else {}))
         prev_hw = hw
@@ -672,6 +848,18 @@ def find_sections(paras, marks):
 # 8. Проверки готового JSONL
 # --------------------------------------------------------------------------
 
+def iter_texts(e):
+    yield 'headword', e['headword']
+    for f in e['forms']:
+        yield 'form', f['form']
+    for s in e['senses']:
+        for g in s['glosses']:
+            yield 'gloss', g['text']
+        for x in s['examples']:
+            yield 'example.ce', x['ce']
+            yield 'example.ru', x['ru']
+
+
 def audit(code, entries, problems):
     seen = Counter()
     for e in entries:
@@ -690,6 +878,23 @@ def audit(code, entries, problems):
                                      f"{hw}: {ex['ce']} / {ex['ru']}"))
         if 'I' in hw or 'І' in hw:
             problems.append((code, e['src_ref'], 'латиница в заголовке', hw))
+        for s_ in e['senses']:
+            for x in s_['examples']:
+                ce = re.sub(r'\s+', '', x['ce'] or '')
+                if hw and ce == re.sub(r'\s+', '', hw) * 2:
+                    problems.append((code, e['src_ref'],
+                                     'словосочетание = заголовок дважды: в книге '
+                                     'часть его набрана светлым',
+                                     f"{hw}: {x['ce']} / {x['ru']}"))
+        for field, value in iter_texts(e):
+            if _SEE.match(value) or re.search(r'(?<=[\s;])хь\s*\.', value):
+                problems.append((code, e['src_ref'],
+                                 'отсылка «хь.» внутри словосочетания, оставлена текстом',
+                                 f'{hw}: {value[:50]}'))
+            if '\x00' in value:
+                problems.append((code, e['src_ref'], f'служебный маркер в {field}', value[:60]))
+            if value != value.strip() or '  ' in value:
+                problems.append((code, e['src_ref'], f'лишние пробелы в {field}', repr(value)[:60]))
     for hw, n in seen.items():
         if n > 1:
             problems.append((code, '-', f'заголовок повторяется {n} раз', hw))
@@ -697,7 +902,7 @@ def audit(code, entries, problems):
     idx = Counter()
     for e in entries:
         hw = e['headword']
-        if seen[hw] > 1:
+        if seen[hw] > 1 and e['homonym'] is None:
             idx[hw] += 1
             e['homonym'] = idx[hw]
             e['id'] = f'{hw}-{idx[hw]}'
