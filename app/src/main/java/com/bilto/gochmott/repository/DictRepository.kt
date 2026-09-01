@@ -25,6 +25,7 @@ import com.bilto.gochmott.search.Diacritics
 import com.bilto.gochmott.search.FuzzyKey
 import com.bilto.gochmott.search.RuNormalizer
 import com.bilto.gochmott.search.RuStem
+import com.bilto.gochmott.search.RuStopWords
 import com.bilto.gochmott.settingsrepo.SettingKeys
 import com.bilto.gochmott.settingsrepo.SettingsRepository
 import kotlinx.coroutines.Dispatchers
@@ -157,9 +158,16 @@ class DictRepository @Inject constructor(
         hitsForTranslationWords(stems, "stem", RU)
     }
 
-    /** Слова русской фразы — те же, что индексирует сборщик (`WORD_RE['ru']`). */
+    /**
+     * Слова русской фразы — РОВНО те, что сборщик положил в обратный индекс.
+     *
+     * Служебные приходится отбрасывать и здесь: их в индексе нет, а
+     * `HAVING COUNT(DISTINCT word) = :n` требует все слова запроса. Пока фильтра
+     * не было, ни один запрос со служебным словом не находился — «на пятый день»
+     * не выводил `цӀаста`, хотя его перевод именно такой.
+     */
     private fun wordsOf(normalized: String): List<String> =
-        RU_WORD.findAll(normalized).map { it.value }.toList()
+        RuStopWords.significant(RU_WORD.findAll(normalized).map { it.value }.toList())
 
     /**
      * Запрос A: точное совпадение со стороной ЗАГОЛОВКА.
