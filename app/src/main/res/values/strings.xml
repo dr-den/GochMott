@@ -38,8 +38,6 @@
     <string name="error_prefix">Error: %1$s</string>
     <string name="loading_dictionary">Loading dictionary…</string>
     <string name="search_hint_empty_state">Enter a word to search</string>
-    <string name="dictionary_subtitle">%1$s Chechen-Russian Dictionary\n≈%2$d entries</string>
-    <string name="matsiev">Matsiev</string>
     <string name="no_results">No results found</string>
     <string name="searching_similar_words">Searching for similar words…</string>
     <string name="recent_searches">Recent searches</string>
@@ -101,4 +99,17 @@
     <string name="usages_no_entry">This word has no entry of its own. Below are the places where it appears in the Russian→Chechen dictionaries.</string>
     <string name="usages_as_gloss">As a translation</string>
     <string name="usages_in_phrases">In phrases</string>
+    <string name="stats_line">%1$s · %2$s</string>
+    <plurals name="stats_books">
+        <item quantity="one">%,d dictionary</item>
+        <item quantity="other">%,d dictionaries</item>
+    </plurals>
+    <plurals name="stats_words_ce">
+        <item quantity="one">%,d Chechen word</item>
+        <item quantity="other">%,d Chechen words</item>
+    </plurals>
+    <plurals name="stats_words_ru">
+        <item quantity="one">%,d Russian word</item>
+        <item quantity="other">%,d Russian words</item>
+    </plurals>
 </resources>

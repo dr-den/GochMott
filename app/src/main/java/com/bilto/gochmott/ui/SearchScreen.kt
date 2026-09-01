@@ -48,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -62,6 +63,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bilto.gochmott.R
 import com.bilto.gochmott.capitalizeFirst
+import com.bilto.gochmott.model.DictStats
 import com.bilto.gochmott.model.Lang
 import com.bilto.gochmott.model.LemmaHit
 import com.bilto.gochmott.model.SearchDirection
@@ -248,15 +250,25 @@ fun SearchScreen(
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                               // 19 075 статей в dict.db версии 3; было 20 423 — старый разбор дробил
-                               // статьи вроде «куьгдоцу,» на лишние заголовки
-                               stringResource(R.string.dictionary_subtitle, stringResource(R.string.matsiev), 19100) ,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center
-                            )
+                            // Считает база, а не ресурсы: захардкоженная цифра
+                            // разойдётся с ней при первой же пересборке. Слова —
+                            // той стороны, которую сейчас ищут: в ЧЕ→РУ спрашивают
+                            // чеченское слово, в РУ→ЧЕ русское.
+                            state.stats?.let { stats ->
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    text = stringResource(
+                                        R.string.stats_line,
+                                        pluralStringResource(
+                                            R.plurals.stats_books, stats.books, stats.books
+                                        ),
+                                        wordsLabel(stats, state.direction)
+                                    ),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                         }
                     }
 
@@ -473,6 +485,18 @@ private fun SuggestionsBlock(
  * заливки и подпись «встречается в переводах», потому что за ней не статья из
  * книги, а список мест, где слово стоит.
  */
+/** «20 653 чеченских слова» либо «26 224 русских слова» — смотря что сейчас ищут. */
+@Composable
+private fun wordsLabel(stats: DictStats, direction: SearchDirection): String {
+    val count = stats.wordsFor(direction)
+    val plural = if (direction == SearchDirection.CE_TO_RU) {
+        R.plurals.stats_words_ce
+    } else {
+        R.plurals.stats_words_ru
+    }
+    return pluralStringResource(plural, count, count)
+}
+
 @Composable
 private fun UsageCard(usage: UsageEntry, onClick: () -> Unit) {
     OutlinedCard(

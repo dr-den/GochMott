@@ -233,6 +233,29 @@ data class UsageEntry(
     val inPhrases: List<Usage> get() = usages.filterNot { it.isGloss }
 }
 
+/**
+ * Что лежит в базе — для пустого экрана поиска.
+ *
+ * Считается по данным, а не пишется в ресурсах: цифра в строке «N слов» устаревает
+ * при первой же пересборке базы, а заметить это некому.
+ *
+ * [books] — КНИГИ (`dicts.book`), а не направления: у двуязычной книги их два, но
+ * читатель держал в руках одну.
+ *
+ * «Слово» с каждой стороны своё, потому что стороны устроены по-разному:
+ *  * [chechenWords] — чеченские заголовки: по ним идёт прямой поиск;
+ *  * [russianWords] — различные русские слова, по которым вообще можно спросить:
+ *    заголовки книг рус→чеч плюс словарь обратного индекса.
+ */
+data class DictStats(
+    val books: Int,
+    val chechenWords: Int,
+    val russianWords: Int
+) {
+    fun wordsFor(direction: SearchDirection): Int =
+        if (direction == SearchDirection.CE_TO_RU) chechenWords else russianWords
+}
+
 enum class SearchDirection {
     CE_TO_RU, RU_TO_CE;
 

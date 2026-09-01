@@ -3,6 +3,7 @@ package com.bilto.gochmott.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bilto.gochmott.db.DatabaseHelper
+import com.bilto.gochmott.model.DictStats
 import com.bilto.gochmott.model.LemmaHit
 import com.bilto.gochmott.model.SearchDirection
 import com.bilto.gochmott.model.UsageEntry
@@ -41,7 +42,9 @@ data class SearchState(
     val isFuzzyLoading: Boolean = false,
     val history: List<String> = emptyList(),
     val dbReady: Boolean = false,
-    val dbError: String? = null
+    val dbError: String? = null,
+    /** Что лежит в базе — подпись на пустом экране. null, пока не посчитано. */
+    val stats: DictStats? = null
 ) {
     val hasExact: Boolean get() = exactResults.isNotEmpty()
     val hasNoResults: Boolean
@@ -100,6 +103,14 @@ class SearchViewModel @Inject constructor(
                 _state.update { it.copy(dbError = e.message ?: "Ошибка базы данных") }
                 return@launch
             }
+            // Подпись пустого экрана: цифры из базы, а не из ресурсов. Считаются
+            // после dbReady, поэтому пару мгновений экран стоит без них — это
+            // лучше, чем показать число, которое разойдётся с базой.
+            try {
+                val stats = repository.stats()
+                _state.update { it.copy(stats = stats) }
+            } catch (_: Exception) { }
+
             // индекс примерного поиска строится заметное время — греем его сразу, чтобы
             // первый же запрос отдал «похожие слова» без паузы. Сбой тут поиск не ломает.
             try {

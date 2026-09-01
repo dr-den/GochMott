@@ -39,8 +39,6 @@
     <string name="error_prefix">Ошибка: %1$s</string>
     <string name="loading_dictionary">Загрузка словаря…</string>
     <string name="search_hint_empty_state">Введите слово для поиска</string>
-    <string name="dictionary_subtitle">Чеченско-русский словарь %1$s\n≈%2$d статей</string>
-    <string name="matsiev">Мациева</string>
     <string name="no_results">Ничего не найдено</string>
     <string name="searching_similar_words">Ищем похожие слова…</string>
     <string name="recent_searches">Недавние запросы</string>
@@ -101,4 +99,23 @@
     <string name="usages_no_entry">Своей статьи у этого слова нет. Ниже — места, где оно встречается в словарях рус→чеч.</string>
     <string name="usages_as_gloss">Как перевод</string>
     <string name="usages_in_phrases">В словосочетаниях</string>
+    <string name="stats_line">%1$s · %2$s</string>
+    <plurals name="stats_books">
+        <item quantity="one">%,d словарь</item>
+        <item quantity="few">%,d словаря</item>
+        <item quantity="many">%,d словарей</item>
+        <item quantity="other">%,d словаря</item>
+    </plurals>
+    <plurals name="stats_words_ce">
+        <item quantity="one">%,d чеченское слово</item>
+        <item quantity="few">%,d чеченских слова</item>
+        <item quantity="many">%,d чеченских слов</item>
+        <item quantity="other">%,d чеченских слова</item>
+    </plurals>
+    <plurals name="stats_words_ru">
+        <item quantity="one">%,d русское слово</item>
+        <item quantity="few">%,d русских слова</item>
+        <item quantity="many">%,d русских слов</item>
+        <item quantity="other">%,d русских слова</item>
+    </plurals>
 </resources>

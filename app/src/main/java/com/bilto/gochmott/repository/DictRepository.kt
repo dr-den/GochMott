@@ -3,6 +3,7 @@ package com.bilto.gochmott.repository
 import android.database.Cursor
 import com.bilto.gochmott.db.DatabaseHelper
 import com.bilto.gochmott.model.DictSource
+import com.bilto.gochmott.model.DictStats
 import com.bilto.gochmott.model.EntryDetail
 import com.bilto.gochmott.model.Example
 import com.bilto.gochmott.model.Form
@@ -534,6 +535,36 @@ class DictRepository @Inject constructor(private val dbHelper: DatabaseHelper) {
             ruSkeleton = ruKeys.toTypedArray()
         )
     }
+
+    // ------------------------------------------------------------- статистика
+
+    @Volatile private var cachedStats: DictStats? = null
+
+    /**
+     * Что показать на пустом экране поиска. Считается один раз и кэшируется:
+     * запрос по русской стороне пробегает весь обратный индекс.
+     */
+    suspend fun stats(): DictStats = cachedStats ?: withContext(Dispatchers.IO) {
+        fun count(sql: String, vararg args: String): Int =
+            dbHelper.database.rawQuery(sql, args).use { c ->
+                if (c.moveToFirst()) c.getInt(0) else 0
+            }
+
+        DictStats(
+            // Книг, а не направлений: math1997_ce и math1997_ru — одна книга.
+            books = count("SELECT COUNT(DISTINCT book) FROM dicts"),
+            // Чеченская сторона: заголовки, по ним и идёт прямой поиск.
+            chechenWords = count("SELECT COUNT(*) FROM lemmas WHERE lang = ?", CE),
+            // Русская сторона: все слова, по которым вообще можно спросить, —
+            // заголовки книг рус→чеч плюс словарь обратного индекса.
+            russianWords = count(
+                "SELECT COUNT(*) FROM (" +
+                    "SELECT word FROM trans_index WHERE lang = ? " +
+                    "UNION SELECT headword_norm FROM lemmas WHERE lang = ?)",
+                RU, RU
+            )
+        )
+    }.also { cachedStats = it }
 
     // ------------------------------------------------------------- карточка
 
