@@ -115,8 +115,8 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
 }
 
-// Понятные имена: GochMott-v1.0.4(14)-release.apk / .aab
-val artifactBaseName = "GochMott-v${android.defaultConfig.versionName}(${android.defaultConfig.versionCode})"
+// Понятные имена: GochMott-v1.0.5-15-release.apk / .aab
+val artifactBaseName = "GochMott-v${android.defaultConfig.versionName}_${android.defaultConfig.versionCode}"
 
 fun Task.renameOutput(dir: Provider<Directory>, from: String, to: String) = doLast {
     val source = File(dir.get().asFile, from)
@@ -128,6 +128,7 @@ fun Task.renameOutput(dir: Provider<Directory>, from: String, to: String) = doLa
 }
 
 val renameReleaseApk = tasks.register("renameReleaseApk") {
+    description = ""
     renameOutput(
         layout.buildDirectory.dir("outputs/apk/release"),
         "app-release.apk",
