@@ -18,3 +18,4 @@ local.properties
 
 # Собирается из rawSources/work/*.jsonl задачей :app:buildDictDb — в git не хранится
 app/src/main/assets/dict.db
+.dictdb-stamp

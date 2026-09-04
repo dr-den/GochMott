@@ -30,6 +30,23 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      # dict.db в git не хранится — она больше лимита GitHub в 100 МБ и
+      # собирается из rawSources/work/*.jsonl. Сборка занимает около получаса,
+      # поэтому результат кэшируется по содержимому входов: пока jsonl и
+      # сборщик не менялись, база берётся из кэша и задача пропускается.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache dictionary database
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/src/main/assets/dict.db
+            .dictdb-stamp
+          key: dictdb-${{ hashFiles('rawSources/work/*.jsonl', 'rawSources/work/reviewed.tsv', 'tools/db_builders/build_app_db.py') }}
+
       - name: Decode keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
