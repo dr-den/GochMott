@@ -1,3 +1,4 @@
 exclude:
   - SCHEMA.md
   - StructNote.md
+  - RELEASE.md

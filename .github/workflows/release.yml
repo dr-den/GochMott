@@ -3,9 +3,12 @@ name: Build and Publish Release
 on:
   push:
     tags:
-      - 'v*'      # Для стабильных релизов (например, v1.0.0)
-      - 'b*'      # Для тестовых сборок (например, b3)
+      - 'v*'      # Стабильный релиз (например, v1.0.4)
+      - 'b*'      # Тестовая сборка (например, b3) — уходит в pre-release
   workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
 
 jobs:
   build-and-release:
@@ -27,42 +30,79 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Decode Keystore
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore.jks
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Секрет KEYSTORE_BASE64 не задан — релиз собирать нечем"
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/keystore.jks"
 
-      - name: Build and Sign Release APKs
-        run: |
-          ./gradlew assembleRelease \
-            -Pandroid.injected.signing.store.file=$(pwd)/keystore.jks \
-            -Pandroid.injected.signing.store.password=${{ secrets.STORE_PASSWORD }} \
-            -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
-            -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
+      - name: Build signed AAB and APK
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew bundleRelease assembleRelease
 
-      - name: Build and Sign Release AAB
+      - name: Verify signature
         run: |
-          ./gradlew bundleRelease -PenableAbiSplits=false \
-            -Pandroid.injected.signing.store.file=$(pwd)/keystore.jks \
-            -Pandroid.injected.signing.store.password=${{ secrets.STORE_PASSWORD }} \
-            -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
-            -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }}
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          "$APKSIGNER" verify --print-certs "$APK" | tee signer.txt
+          if grep -qi "CN=Android Debug" signer.txt; then
+            echo "::error::Артефакт подписан отладочным ключом — публиковать нельзя"
+            exit 1
+          fi
 
-      - name: Rename AAB
+      - name: Checksums
         run: |
-          VERSION_NAME=$(grep -Po 'versionName = "\K[^"]+' app/build.gradle.kts)
-          VERSION_CODE=$(grep -Po 'versionCode = \K\d+' app/build.gradle.kts)
-          mv app/build/outputs/bundle/release/app-release.aab \
-             "app/build/outputs/bundle/release/GochMott-v${VERSION_NAME}(${VERSION_CODE})-release.aab"
+          cd app/build/outputs/apk/release
+          sha256sum *.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload AAB for stores
+        uses: actions/upload-artifact@v4
+        with:
+          name: aab-${{ github.ref_name }}
+          path: app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload ProGuard mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapping-${{ github.ref_name }}
+          path: app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ github.ref_name }}
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
         env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-            # Проверяем, начинается ли тег с 'b' (например, b6)
-            if [[ "${{ github.ref }}" == refs/tags/b* ]]; then
-              # Создаем Pre-release
-              gh release create ${{ github.ref_name }} app/build/outputs/apk/release/*.apk app/build/outputs/bundle/release/*.aab --generate-notes --prerelease
-            else
-              # Создаем обычный стабильный релиз (Latest)
-              gh release create ${{ github.ref_name }} app/build/outputs/apk/release/*.apk app/build/outputs/bundle/release/*.aab --generate-notes
-            fi
+          FLAGS="--generate-notes"
+          # Тег вида b6 — тестовая сборка, помечаем как pre-release
+          if [[ "${{ github.ref_name }}" == b* ]]; then
+            FLAGS="$FLAGS --prerelease"
+          fi
+          gh release create "${{ github.ref_name }}" \
+            app/build/outputs/apk/release/*.apk \
+            app/build/outputs/apk/release/SHA256SUMS.txt \
+            $FLAGS
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/keystore.jks"

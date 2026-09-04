@@ -1,5 +1,3 @@
-import org.gradle.language.nativeplatform.internal.Dimensions.applicationVariants
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -17,23 +15,10 @@ android {
         applicationId = "com.bilto.gochmott"
         minSdk = 26
         targetSdk = 37
-        versionCode = 14
-        versionName = "1.0.4"
+        versionCode = 15
+        versionName = "1.0.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    }
-
-    val buildingBundle = gradle.startParameter.taskNames.any { it.contains("bundle", ignoreCase = true) }
-    val enableAbiSplits = !buildingBundle &&
-        ((findProperty("enableAbiSplits") as String?)?.toBoolean() ?: true)
-
-    splits {
-        abi {
-            isEnable = enableAbiSplits
-            reset()
-            include("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
-            isUniversalApk = true
-        }
     }
 
     signingConfigs {
@@ -45,6 +30,12 @@ android {
                 keyAlias = System.getenv("KEY_ALIAS")
                 keyPassword = System.getenv("KEY_PASSWORD")
             } else {
+                val releaseRequested = gradle.startParameter.taskNames.any {
+                    it.contains("Release", ignoreCase = true)
+                }
+                check(!(System.getenv("CI") == "true" && releaseRequested)) {
+                    "Релизный ключ не найден. Задай KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD."
+                }
                 initWith(getByName("debug"))
             }
         }
@@ -61,6 +52,13 @@ android {
             signingConfig = signingConfigs.getByName("release")
         }
     }
+
+    bundle {
+        language {
+            enableSplit = false
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -117,35 +115,38 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
 }
 
-val renameReleaseApks = tasks.register("renameReleaseApks") {
-    doLast {
-        val apkDir = layout.buildDirectory.dir("outputs/apk/release").get().asFile
-        if (apkDir.exists()) {
-            val appName = "GochMott"
-            val versionName = android.defaultConfig.versionName ?: "1.0.0"
-            val versionCode = android.defaultConfig.versionCode ?: 1
+// Понятные имена: GochMott-v1.0.4(14)-release.apk / .aab
+val artifactBaseName = "GochMott-v${android.defaultConfig.versionName}(${android.defaultConfig.versionCode})"
 
-            apkDir.listFiles()?.filter { it.extension == "apk" }?.forEach { apkFile ->
-                // Пропускаем уже переименованные файлы, чтобы избежать циклов
-                if (!apkFile.name.startsWith(appName)) {
-                    val abi = when {
-                        apkFile.name.contains("arm64-v8a") -> "arm64-v8a"
-                        apkFile.name.contains("armeabi-v7a") -> "armeabi-v7a"
-                        apkFile.name.contains("x86_64") -> "x86_64"
-                        apkFile.name.contains("x86") -> "x86"
-                        apkFile.name.contains("universal") -> "universal"
-                        else -> "universal"
-                    }
-                    val newFile = File(apkDir, "$appName-v$versionName($versionCode)-$abi-release.apk")
-                    apkFile.renameTo(newFile)
-                }
-            }
-        }
+fun Task.renameOutput(dir: Provider<Directory>, from: String, to: String) = doLast {
+    val source = File(dir.get().asFile, from)
+    if (source.exists()) {
+        val target = File(source.parentFile, to)
+        target.delete()
+        source.renameTo(target)
     }
 }
 
+val renameReleaseApk = tasks.register("renameReleaseApk") {
+    renameOutput(
+        layout.buildDirectory.dir("outputs/apk/release"),
+        "app-release.apk",
+        "$artifactBaseName-release.apk"
+    )
+}
+
+val renameReleaseBundle = tasks.register("renameReleaseBundle") {
+    description = ""
+    renameOutput(
+        layout.buildDirectory.dir("outputs/bundle/release"),
+        "app-release.aab",
+        "$artifactBaseName-release.aab"
+    )
+}
+
 tasks.configureEach {
-    if (name == "assembleRelease") {
-        finalizedBy(renameReleaseApks)
+    when (name) {
+        "assembleRelease" -> finalizedBy(renameReleaseApk)
+        "bundleRelease" -> finalizedBy(renameReleaseBundle)
     }
 }
