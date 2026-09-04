@@ -42,6 +42,11 @@ data class SearchState(
     val isFuzzyLoading: Boolean = false,
     val history: List<String> = emptyList(),
     val dbReady: Boolean = false,
+    /**
+     * Доля скопированного словаря, пока он ставится из assets; `null` — не ставится.
+     * Файл больше сотни мегабайт, и без доли ожидание неотличимо от зависания.
+     */
+    val dbProgress: Float? = null,
     val dbError: String? = null,
     /** Что лежит в базе — подпись на пустом экране. null, пока не посчитано. */
     val stats: DictStats? = null,
@@ -84,7 +89,17 @@ class SearchViewModel @Inject constructor(
 
     init {
         initDatabase()
+        observeDbInstall()
         observeHistory()
+    }
+
+    /** Ход установки словаря — экран показывает его вместо неопределённой крутилки. */
+    private fun observeDbInstall() {
+        viewModelScope.launch {
+            dbHelper.installProgress.collect { progress ->
+                _state.update { it.copy(dbProgress = progress) }
+            }
+        }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)

@@ -14,9 +14,9 @@ import com.bilto.gochmott.R
 /**
  * Короткая подпись книги для строки выдачи.
  *
- * В базе пять словарей и один запрос отдаёт статьи из нескольких сразу: `маркер`
- * есть и у Мациева, и в компьютерной лексике 2017, и переводом в математическом
- * 1997. Без подписи выдача выглядит как список повторов.
+ * В базе шесть словарных направлений, и один запрос отдаёт статьи из нескольких
+ * сразу: `маркер` есть и у Мациева, и в компьютерной лексике 2017, и переводом
+ * в математическом 1997. Без подписи выдача выглядит как список повторов.
  *
  * Подпись берётся по `dicts.book` — по КНИГЕ, а не по направлению: у двуязычной
  * книги `math1997_ce` и `math1997_ru` это один и тот же источник. Названия лежат
@@ -29,6 +29,7 @@ object DictBadge {
     @Composable
     fun label(bookCode: String, year: Int?): String = when (bookCode) {
         "maciev1961" -> stringResource(R.string.dict_book_maciev1961)
+        "karasaev1978" -> stringResource(R.string.dict_book_karasaev1978)
         "math1997" -> stringResource(R.string.dict_book_math1997)
         "comp2017" -> stringResource(R.string.dict_book_comp2017)
         else -> year?.toString().orEmpty()

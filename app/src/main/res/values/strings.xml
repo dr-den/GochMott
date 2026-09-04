@@ -37,6 +37,7 @@
     <string name="clear_content_description">Clear</string>
     <string name="error_prefix">Error: %1$s</string>
     <string name="loading_dictionary">Loading dictionary…</string>
+    <string name="loading_dictionary_percent">%1$d%%</string>
     <string name="search_hint_empty_state">Enter a word to search</string>
     <string name="no_results">No results found</string>
     <string name="searching_similar_words">Searching for similar words…</string>
@@ -86,6 +87,7 @@
     <string name="link_conflict">dictionaries differ: %1$s</string>
     <string name="source">Source</string>
     <string name="dict_book_maciev1961">Matsiyev, 1961</string>
+    <string name="dict_book_karasaev1978">Karasayev, 1978</string>
     <string name="dict_book_math1997">Math, 1997</string>
     <string name="dict_book_comp2017">Comp, 2017</string>
     <string name="books_title">About the dictionaries</string>

@@ -168,9 +168,12 @@ fun SearchScreen(
             }
 
             // Search field
+            // Пока словарь ставится из assets, поле видно, но не принимает ввод:
+            // искать всё равно нечем, а живое поле молча съедало бы набранное.
             OutlinedTextField(
                 value = state.query,
                 onValueChange = { viewModel.onIntent(SearchIntent.QueryChanged(it)) },
+                enabled = state.dbReady,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp),
@@ -229,8 +232,26 @@ fun SearchScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            CircularProgressIndicator()
+                            // Доля известна только пока идёт копирование из assets.
+                            // До и после него (открытие БД, проверка версии) крутилка
+                            // неопределённая — там считать нечего.
+                            val progress = state.dbProgress
+                            if (progress == null) {
+                                CircularProgressIndicator()
+                            } else {
+                                CircularProgressIndicator(progress = { progress })
+                            }
                             Text(stringResource(R.string.loading_dictionary))
+                            if (progress != null) {
+                                Text(
+                                    text = stringResource(
+                                        R.string.loading_dictionary_percent,
+                                        (progress * 100).toInt()
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
 

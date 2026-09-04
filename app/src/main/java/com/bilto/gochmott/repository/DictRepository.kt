@@ -65,6 +65,8 @@ class DictRepository @Inject constructor(
         const val MIRROR_LIMIT = 20           // зеркальных статей на одну статью
         const val MERGED_SENSE_PREVIEW = 3    // строк значений в слитой карточке выдачи
         const val STATS_SEP = '|'          // разделитель полей в кэше статистики
+        const val FIELD = ''         // разделители внутри ключа значения:
+        const val GLOSS = ''         // в самом тексте словаря их быть не может
 
         const val CE = Lang.CE
         const val RU = Lang.RU
@@ -648,8 +650,8 @@ class DictRepository @Inject constructor(
         )
         // Книги, где наше слово стоит переводом, а заголовком — его русский
         // эквивалент. Поиск ЧЕ→РУ их не видит, а пара настоящая.
-        val senses = addMirrors(
-            combined, lemma.lang, mirrorEntries(lemmaId), headwordMateGlosses(lemmaId)
+        val senses = collapseTwins(
+            addMirrors(combined, lemma.lang, mirrorEntries(lemmaId), headwordMateGlosses(lemmaId))
         )
         EntryDetail(
             lemma = lemma.copy(classes = getClasses(lemmaId)),
@@ -1336,6 +1338,54 @@ class DictRepository @Inject constructor(
             )
         }
         return senses to idioms
+    }
+
+    /**
+     * Схлопывает значения, которые на экране неотличимы одно от другого.
+     *
+     * У `класс` Мациев печатает два значения с одним и тем же переводом «класс»
+     * и без единого пояснения. На экране получается «1. класс» и «2. класс» —
+     * читатель видит повтор, а не два значения. Примеры при этом разные, поэтому
+     * значения не выбрасываются, а сливаются в одно со всеми своими примерами.
+     *
+     * Различает хоть что-нибудь показываемое — пояснение, помета, плашка книги —
+     * значит, это не повтор, и значения остаются раздельными: у `дом` это «цӀа»
+     * и «(учреждение) цӀа».
+     */
+    private fun collapseTwins(senses: List<Sense>): List<Sense> {
+        if (senses.size < 2) return senses
+        val out = mutableListOf<Sense>()
+        val seen = HashMap<String, Int>()
+        senses.forEach { sense ->
+            val at = seen[senseSignature(sense)]
+            if (at == null) {
+                seen[senseSignature(sense)] = out.size
+                out += sense
+            } else {
+                out[at] = out[at].copy(examples = out[at].examples + sense.examples)
+            }
+        }
+        return out
+    }
+
+    /**
+     * Всё, что видно у значения на экране, одной строкой — ключ для [collapseTwins].
+     *
+     * `MergedRef` сравнивается по книге, а не целиком: `lemmaId` внутри у каждой
+     * книги свой, а на экране от плашки видно только название.
+     */
+    private fun senseSignature(sense: Sense): String = buildString {
+        append(sense.blockN).append(FIELD).append(sense.pos).append(FIELD)
+        append(sense.labels.joinToString(",")).append(FIELD)
+        sense.fromBooks.forEach { append(it.dictBook).append(',') }
+        sense.glosses.forEach { gloss ->
+            append(GLOSS)
+            append(gloss.text).append(FIELD).append(gloss.lang).append(FIELD)
+            append(gloss.sep).append(FIELD).append(gloss.note).append(FIELD)
+            append(gloss.gov).append(FIELD).append(gloss.cls.joinToString(",")).append(FIELD)
+            append(gloss.labels.joinToString(",")).append(FIELD)
+            gloss.fromBooks.forEach { append(it.dictBook).append(',') }
+        }
     }
 
     /**

@@ -58,6 +58,7 @@ import com.bilto.gochmott.model.ClassNote
 import com.bilto.gochmott.model.Gloss
 import com.bilto.gochmott.model.Lang
 import com.bilto.gochmott.model.LinkedEntry
+import com.bilto.gochmott.model.MergedRef
 import com.bilto.gochmott.model.Form
 import com.bilto.gochmott.model.Ref
 import com.bilto.gochmott.model.Sense
@@ -268,10 +269,12 @@ private fun DetailContent(
             item {
                 SectionLabel(stringResource(R.string.meanings))
             }
+            val numbers = senseNumbers(detail.senses)
             itemsIndexed(detail.senses) { i, sense ->
                 val previous = detail.senses.getOrNull(i - 1)
                 SenseBlock(
                     sense = sense,
+                    number = numbers[i],
                     startsBlock = sense.blockN != null && sense.blockN != previous?.blockN,
                     lang = lemma.lang
                 )
@@ -426,8 +429,49 @@ private fun SectionLabel(text: String) {
     }
 }
 
+/**
+ * Номера значений для показа; `null` — номер не нужен.
+ *
+ * Номера у карточки свои, а не книжные. Карточка сводит несколько книг, и у
+ * значения, пришедшего из чужой книги, книжного номера нет вовсе — на экране
+ * оно оставалось без цифры рядом с пронумерованными соседями. Внутри блока по
+ * частям речи счёт начинается заново, как в книге; единственное значение блока
+ * номера не получает — считать там нечего.
+ */
+private fun senseNumbers(senses: List<Sense>): List<Int?> {
+    val sizes = senses.groupingBy { it.blockN }.eachCount()
+    val counter = HashMap<Int?, Int>()
+    return senses.map { sense ->
+        if ((sizes[sense.blockN] ?: 0) < 2) null
+        else counter.merge(sense.blockN, 1, Int::plus)
+    }
+}
+
+/**
+ * Книги, которые подписывают значение, — одним списком для плашек справа.
+ *
+ * Помет две, и раньше они стояли в разных местах: [Sense.fromBooks] — само
+ * значение пришло из чужой книги (`хӀусам` у `дом`), [Gloss.fromBooks] — перевод
+ * подтверждён книгой, где он стоит заголовком (`цӀа` у `дом`). Вторая печаталась
+ * прямо в строке, между переводом и его пояснением: «цӀа (Мациев, 1961)
+ * (учреждение)». Из-за этого пояснение отрывалось от своего слова, и два
+ * значения с одним переводом читались как повтор.
+ *
+ * Теперь обе уходят вправо: слева остаётся «цӀа (учреждение)», справа — книга.
+ * Книга, названная и значением, и переводом, показывается один раз.
+ */
+private fun senseBooks(sense: Sense): List<MergedRef> {
+    val all = sense.fromBooks + sense.glosses.flatMap { it.fromBooks }
+    return all.distinctBy { it.dictBook to it.dictYear }
+}
+
 @Composable
-private fun SenseBlock(sense: Sense, startsBlock: Boolean, lang: String) {
+private fun SenseBlock(
+    sense: Sense,
+    number: Int?,
+    startsBlock: Boolean,
+    lang: String
+) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         // Блок `1.` / `2.` — это части речи внутри одной статьи
         // (хе̃наза: 1. прил. преждевременный, 2. нареч. преждевременно).
@@ -443,24 +487,13 @@ private fun SenseBlock(sense: Sense, startsBlock: Boolean, lang: String) {
         }
         Row(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = sense.senseNo?.let { "$it." }.orEmpty(),
+                text = number?.let { "$it." }.orEmpty(),
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.width(24.dp)
             )
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                // Значение, которого у эталона нет: у `хьаьрк` это «цифра» из книг
-                // 1997 и 2017. Плашка говорит чьё — иначе выглядит как значение
-                // Мациева, которого он не давал. Книг может быть несколько: одно
-                // значение, два источника.
-                if (sense.fromBooks.isNotEmpty()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        sense.fromBooks.forEach { book ->
-                            DictBadgeChip(book.dictBook, book.dictYear)
-                        }
-                    }
-                }
                 if (sense.labels.isNotEmpty()) {
                     Text(
                         text = sense.labels.joinToString(" "),
@@ -469,11 +502,27 @@ private fun SenseBlock(sense: Sense, startsBlock: Boolean, lang: String) {
                         color = MaterialTheme.colorScheme.secondary
                     )
                 }
-                Text(
-                    text = glossesText(sense.glosses),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.copyOnLongPress(plainGlosses(sense.glosses))
-                )
+                // Слева перевод со своим пояснением, справа книги — см. [senseBooks].
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = glossesText(sense.glosses),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .weight(1f)
+                            .copyOnLongPress(plainGlosses(sense.glosses))
+                    )
+                    val books = senseBooks(sense)
+                    if (books.isNotEmpty()) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(start = 8.dp)
+                        ) {
+                            books.forEach { book ->
+                                DictBadgeChip(book.dictBook, book.dictYear)
+                            }
+                        }
+                    }
+                }
                 // Слитая статья набирает до трёх десятков примеров — столько
                 // разом не читают. Показываем первые, остальные по требованию.
                 var expanded by remember(sense.id) { mutableStateOf(false) }
@@ -572,12 +621,9 @@ private fun glossesText(glosses: List<Gloss>) = buildAnnotatedString {
             withStyle(aside) { append(gloss.labels.joinToString(" ") + " ") }
         }
         append(Marks.forLang(gloss.lang, gloss.text).orEmpty())
-        // Книга, где это слово стоит ЗАГОЛОВКОМ, а наше — переводом: та же пара,
-        // сказанная с другой стороны. Помета у самого перевода, а не отдельной
-        // строкой: «2. ложь» рядом с «1. …ложь…» было бы дублем.
-        gloss.fromBooks.forEach { book ->
-            withStyle(aside) { append(" (" + DictBadge.label(book.dictBook, book.dictYear) + ")") }
-        }
+        // Книга, где это слово стоит ЗАГОЛОВКОМ, а наше — переводом, называется
+        // плашкой справа, а не здесь: в строке она разрывала перевод и его
+        // пояснение — см. [senseBooks].
         // Классный показатель перевода: у словарей рус->чеч он стоит при чеченском
         // слове -- `адаптер (й, й)`, -- и в базе лежит в `glosses.gram.cls`.
         if (gloss.cls.isNotEmpty()) withStyle(aside) { append(clsSuffix(gloss.cls)) }

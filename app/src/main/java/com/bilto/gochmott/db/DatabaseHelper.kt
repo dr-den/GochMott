@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -41,7 +43,7 @@ class DatabaseHelper @Inject constructor(
          * при каждой пересборке БД поднимайте оба числа, иначе на устройствах со старой
          * копией она не обновится.
          */
-        const val EXPECTED_DB_VERSION = 5
+        const val EXPECTED_DB_VERSION = 6
 
         /** Файлы SQLite рядом с БД: от прежней копии к новой они не относятся. */
         private val SIDECAR_SUFFIXES = listOf("-journal", "-wal", "-shm")
@@ -62,6 +64,16 @@ class DatabaseHelper @Inject constructor(
 
     private val _dbVersion  = MutableStateFlow(-1)
     val dbVersion  = _dbVersion.asStateFlow()
+
+    /**
+     * Ход установки словаря из assets: `null` — не копируем, иначе доля от 0 до 1.
+     *
+     * Файл больше сотни мегабайт, и распаковка занимает секунды даже на быстром
+     * телефоне. Неопределённая крутилка всё это время неотличима от зависшего
+     * приложения, поэтому доля считается и показывается.
+     */
+    private val _installProgress = MutableStateFlow<Float?>(null)
+    val installProgress = _installProgress.asStateFlow()
 
     /**
      * Версия установленной локальной копии. Открывает БД, если ещё не открыта, —
@@ -104,7 +116,7 @@ class DatabaseHelper @Inject constructor(
 
     /**
      * Копирует БД во временный файл рядом и только потом атомарно подменяет им старую.
-     * Напрямую нельзя: если процесс убьют посреди копирования 25 МБ, на диске останется
+     * Напрямую нельзя: если процесс убьют посреди копирования, на диске останется
      * обрезанный файл, который выглядит как настоящая БД.
      */
     private fun installFromAssets(dbFile: File) {
@@ -115,8 +127,11 @@ class DatabaseHelper @Inject constructor(
 
         try {
             context.assets.open(DB_NAME).use { input ->
+                // Ассет лежит в APK сжатым, но AssetManager знает распакованную
+                // длину, и available() отдаёт именно её — иначе делить было бы не на что.
+                val total = input.available().toLong()
                 FileOutputStream(tmpFile).use { output ->
-                    input.copyTo(output, COPY_BUFFER)
+                    copyWithProgress(input, output, total)
                     output.fd.sync() // дожать на диск ДО подмены
                 }
             }
@@ -124,9 +139,36 @@ class DatabaseHelper @Inject constructor(
         } catch (e: Exception) {
             tmpFile.delete()
             throw e
+        } finally {
+            _installProgress.value = null
         }
 
         SIDECAR_SUFFIXES.forEach { File(dir, DB_NAME + it).delete() }
+    }
+
+    /**
+     * Копирует и по дороге двигает [installProgress].
+     *
+     * Доля обновляется на каждом целом проценте, а не на каждом буфере: буферов
+     * тут больше полутора тысяч, и экрану от них ничего не прибавляется.
+     */
+    private fun copyWithProgress(input: InputStream, output: OutputStream, total: Long) {
+        val buffer = ByteArray(COPY_BUFFER)
+        var copied = 0L
+        var shownPercent = -1
+        _installProgress.value = 0f
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            output.write(buffer, 0, read)
+            copied += read
+            if (total <= 0) continue
+            val percent = (copied * 100 / total).toInt().coerceAtMost(100)
+            if (percent != shownPercent) {
+                shownPercent = percent
+                _installProgress.value = percent / 100f
+            }
+        }
     }
 
     private fun moveAtomically(from: File, to: File) {

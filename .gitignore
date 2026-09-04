@@ -15,3 +15,6 @@
 local.properties
 /.idea/.name
 .kotlin
+
+# Собирается из rawSources/work/*.jsonl задачей :app:buildDictDb — в git не хранится
+app/src/main/assets/dict.db
