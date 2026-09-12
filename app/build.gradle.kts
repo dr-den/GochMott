@@ -219,11 +219,14 @@ val buildDictDb = tasks.register("buildDictDb") {
             add(dictReviewed.absolutePath)
         }
 
-        logger.lifecycle("Собираю словарную базу — это примерно полчаса")
+        logger.lifecycle("Собираю словарную базу")
         dictDb.parentFile.mkdirs()
+        // Без консоли Python в Windows пишет в кодировке системы (cp1251), а в ней
+        // нет чеченской палочки «Ӏ» — первый же её print роняет сборку.
         val exitCode = ProcessBuilder(command)
             .directory(rootProject.projectDir)
             .inheritIO()
+            .apply { environment()["PYTHONUTF8"] = "1" }
             .start()
             .waitFor()
         if (exitCode != 0) error("сборка dict.db не удалась, код $exitCode")

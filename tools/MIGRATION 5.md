@@ -26,23 +26,24 @@ comp2017_ru    ru->ce      525
 
 ```powershell
 # сборка всех источников
-python tools/build_app_db.py app/src/main/assets/dict.db `
-    --dict maciev1961=rawSources/maciev.jsonl `
-    --dict math1997_ce=tools/1/math1997_ce.jsonl `
-    --dict math1997_ru=tools/1/math1997_ru.jsonl `
-    --dict comp2017_ce=tools/1/comp2017_ce.jsonl `
-    --dict comp2017_ru=tools/1/comp2017_ru.jsonl `
-    --links --links-report tools/1/conflicts.tsv --reviewed tools/1/reviewed.tsv
+python tools/db_builders/build_app_db.py app/src/main/assets/dict.db `
+    --dict maciev1961=rawSources/work/maciev.jsonl `
+    --dict karasaev1978=rawSources/work/karasaev1978.jsonl `
+    --dict math1997_ce=rawSources/work/math1997_ce.jsonl `
+    --dict math1997_ru=rawSources/work/math1997_ru.jsonl `
+    --dict comp2017_ce=rawSources/work/comp2017_ce.jsonl `
+    --dict comp2017_ru=rawSources/work/comp2017_ru.jsonl `
+    --links --links-report rawSources/work/conflicts.tsv --reviewed rawSources/work/reviewed.tsv
 
 # сверка: содержимое Мациева обязано совпадать со старой v3
-python tools/verify_db.py app/src/main/assets/dict.db `
-    --old app/src/main/assets/old_v3.db --code maciev1961
+python tools/db_builders/verify_db.py app/src/main/assets/dict.db `
+    --old tools/old_v3.db --code maciev1961
 
 # разбор .odt в JSONL (только если менялся парсер)
-python tools/parse_small_dicts.py --math work/math1997.odt --comp work/comp2017.odt --out tools/1/
+python tools/db_builders/parse_small_dicts.py --math rawSources/math1997.odt --comp rawSources/comp2017.odt --out rawSources/work/
 
 # латиница и палочка не тем знаком в отображаемом тексте
-python tools/find_homoglyphs.py app/src/main/assets/dict.db --out tools/1/homoglyphs.tsv
+python tools/db_builders/find_homoglyphs.py app/src/main/assets/dict.db --out tools/db_builders/homoglyphs.tsv
 ```
 
 **У `verify_db.py` флаг `--code`, а не `--dict`.** У сборщика `--dict` берёт

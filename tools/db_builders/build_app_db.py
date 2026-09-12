@@ -48,8 +48,9 @@
     показателя | `linked` ключ пришёл из другой книги. У `gen`/`linked`
     заполнен `donor_dict_id` — чей показатель породил строку.
 """
-import argparse, json, os, re, sqlite3, sys, unicodedata as ud
+import argparse, gzip, json, os, re, sqlite3, sys, unicodedata as ud
 from collections import defaultdict, Counter
+from functools import lru_cache
 
 TILDE = '̃'   # чёрточка долготы (комбинирующая)
 ACUTE = '́'   # русское ударение
@@ -88,6 +89,11 @@ DICTS = {
         authors='Умархаджиев С. М., Ахматукаев А. А.', year=1997, place='Грозный',
         publisher='', lang_src='ru', lang_tgt='ce', priority=31),
 
+    'aslakhanov2012': dict(
+        book='aslakhanov2012',
+        title='Русско-чеченский словарь спортивных терминов и словосочетаний',
+        authors='Аслаханов С.-А. М.', year=2012, place='Махачкала',
+        publisher='АЛЕФ', lang_src='ru', lang_tgt='ce', priority=45),
     'comp2017_ru': dict(
         book='comp2017',
         title='Русско-чеченский, чеченско-русский словарь компьютерной лексики',
@@ -125,6 +131,10 @@ _CE_MAP = {
 _WS = re.compile(r'\s+')
 
 
+# Нормализаторы — чистые функции от строки, а слова в словаре повторяются:
+# на Карасаеве `normalize_ce` зовётся 439 тысяч раз на несколько десятков
+# тысяч различных слов. Кэш снимает разницу и ничего не меняет в выводе.
+@lru_cache(maxsize=200_000)
 def normalize_ce(s):
     """Порт ChechenNormalizer.normalize(). Ключ ТОЧНОГО поиска по чеченскому."""
     if not s:
@@ -135,6 +145,7 @@ def normalize_ce(s):
     return ud.normalize('NFC', _WS.sub(' ', s).strip())
 
 
+@lru_cache(maxsize=200_000)
 def normalize_ru(s):
     """Ключ точного поиска по русскому: NFC, lower, ё->е, снято ударение.
 
@@ -168,11 +179,13 @@ def _fold(source, table):
     return ''.join(out)
 
 
+@lru_cache(maxsize=200_000)
 def fuzzy_ce(s):
     """Порт FuzzyKey.chechen(). Скелет для примерного поиска."""
     return _fold(normalize_ce(s), _FOLD_CE)
 
 
+@lru_cache(maxsize=200_000)
 def fuzzy_ru(s):
     """Порт FuzzyKey.russian()."""
     return _fold((s or '').lower(), _FOLD_RU)
@@ -310,6 +323,7 @@ def ru_stem(word):
     return word
 
 
+@lru_cache(maxsize=200_000)
 def approx_key(lang, word):
     """Приблизительный ключ обратного индекса: основа Snowball для русского,
     скелет FuzzyKey для чеченского. Лежит в одной колонке `trans_index.stem`,
@@ -575,23 +589,35 @@ CREATE INDEX ix_lemmas_norm    ON lemmas(headword_norm);
 CREATE INDEX ix_lemmas_fold    ON lemmas(headword_fold);
 CREATE INDEX ix_lemmas_order   ON lemmas(dict_id, ordering);
 CREATE INDEX ix_lemmas_rich    ON lemmas(richness);
+CREATE INDEX ix_forms_fold     ON forms(form_fold, lang);       -- [не используется]
 CREATE INDEX ix_forms_norm     ON forms(form_norm, lang);
-CREATE INDEX ix_forms_fold     ON forms(form_fold, lang);
 CREATE INDEX ix_forms_lemma    ON forms(lemma_id);
 CREATE INDEX ix_senses_lemma   ON senses(lemma_id);
 CREATE INDEX ix_glosses_sense  ON glosses(sense_id);
 CREATE INDEX ix_glosses_lemma  ON glosses(lemma_id);
+CREATE INDEX ix_glosses_fold   ON glosses(text_fold, lang);     -- [не используется]
 CREATE INDEX ix_glosses_norm   ON glosses(text_norm, lang);
-CREATE INDEX ix_glosses_fold   ON glosses(text_fold, lang);
+CREATE INDEX ix_examples_norm  ON examples(ce_norm);            -- [не используется]
+CREATE INDEX ix_examples_rnorm ON examples(ru_norm);            -- [не используется]
 CREATE INDEX ix_examples_lemma ON examples(lemma_id);
 CREATE INDEX ix_examples_sense ON examples(sense_id);
-CREATE INDEX ix_examples_norm  ON examples(ce_norm);
-CREATE INDEX ix_examples_rnorm ON examples(ru_norm);
 CREATE INDEX ix_subs_example   ON subs(example_id);
 CREATE INDEX ix_blocks_lemma   ON blocks(lemma_id);
 CREATE INDEX ix_lclass_lemma   ON lemma_class(lemma_id);
+CREATE INDEX ix_xref_norm      ON cross_refs(dict_id, to_headword_norm); -- [не используется]
 CREATE INDEX ix_xref_from      ON cross_refs(from_lemma_id);
-CREATE INDEX ix_xref_norm      ON cross_refs(dict_id, to_headword_norm);
+-- ЗАМЕР ОТ 2026-09: пять индексов ниже приложение не использует ни разу
+-- (сверено с DictRepository.kt). Вместе они весят около 10 МБ на полной базе:
+--   ix_forms_fold 3,0 · ix_examples_rnorm 2,3 · ix_examples_norm 2,3 ·
+--   ix_glosses_fold 2,4 · ix_xref_norm 0,15
+-- Нечёткий поиск по формам идёт через forms_trgm (FTS5), по переводам и
+-- примерам — через trans_index. Индексы ОСТАВЛЕНЫ намеренно: 10 МБ из ста не
+-- стоят риска, а вернуть их потом дороже, чем держать. Если понадобится
+-- ужаться — удалять можно только эти пять строк, помеченные [не используется].
+--
+-- ix_ti_stem УДАЛЯТЬ НЕЛЬЗЯ, хотя текстовым поиском по Kotlin он не находится:
+-- колонка там подставляется через `t.$column` (word либо stem), и это запасной
+-- слой поиска по основам.
 CREATE INDEX ix_ti_word        ON trans_index(word, lang);
 CREATE INDEX ix_ti_stem        ON trans_index(stem, lang);
 CREATE INDEX ix_ti_lemma       ON trans_index(lemma_id);
@@ -735,9 +761,15 @@ def keyed(lang, v):
 
 
 def load_entries(path):
-    """Читает JSONL, разводит совпавшие id (`атлас` -> `атлас#2`)."""
+    """Читает JSONL, разводит совпавшие id (`атлас` -> `атлас#2`).
+
+    Понимает и `.jsonl`, и `.jsonl.gz`. Сжатый вариант нужен для репозитория:
+    разобранный Карасаев это 26 МБ текста и 2,4 МБ в gzip, а сама `dict.db`
+    в гит не кладётся вовсе — она собирается из этих файлов.
+    """
     entries, seen = [], set()
-    with open(path, encoding='utf-8') as f:
+    opener = gzip.open if str(path).endswith('.gz') else open
+    with opener(path, 'rt', encoding='utf-8') as f:
         for ln, line in enumerate(f, 1):
             line = line.strip()
             if not line:
@@ -945,6 +977,16 @@ def build(db_path, sources, class_forms='safe', want_fts=True, want_links=False,
                          J(g.get('labels')), JO(g.get('gram'))))
                     glosses_of_lemma[lemma].append((gid, gnorm))
                     add_ti(gnorm, lemma, 0, gid)
+                    # Склонение перевода (у Аслаханова оно стоит при каждом
+                    # чеченском слове) лежит в `gram.forms` и в текст глоссы не
+                    # идёт — иначе карточка показывала бы «амплитуда
+                    # (амплитудан, амплитудана…)». Но искать по этим формам
+                    # надо: читатель встречает в тексте «амплитудана», а не
+                    # словарную форму.
+                    for pf in (g.get('gram') or {}).get('forms') or []:
+                        pw = marked(pf.get('form'))
+                        if pw:
+                            add_ti(NORMALIZE[ltgt](pw), lemma, 0, gid)
                 add_examples(lemma, sid, s.get('examples'), False)
 
         # ---- проход 1: леммы --------------------------------------------
@@ -1207,13 +1249,24 @@ def build(db_path, sources, class_forms='safe', want_fts=True, want_links=False,
     # Насколько статья подробна. Не факт из книги, а мера для ранжирования:
     # при равном совпадении полная статья Мациева должна стоять выше голого
     # «термин -> термин» из отраслевого словаря.
-    db.execute("""
+    # `richness` считался четырьмя КОРРЕЛИРОВАННЫМИ подзапросами на каждую
+    # лемму, и всё это ДО создания индексов: 38 тысяч лемм × четыре полных
+    # перебора таблиц. На Карасаеве один этот UPDATE занимал пять минут из
+    # девяти. Теперь это один проход с группировкой и подстановка по
+    # временной таблице с первичным ключом.
+    db.executescript("""
+        CREATE TEMP TABLE rich(lemma_id INTEGER PRIMARY KEY, r INTEGER);
+        INSERT INTO rich(lemma_id, r)
+            SELECT lemma_id, SUM(w) FROM (
+                SELECT lemma_id, 1 AS w FROM senses
+                UNION ALL SELECT lemma_id, 1 FROM glosses
+                UNION ALL SELECT lemma_id, 2 FROM examples
+                UNION ALL SELECT lemma_id, 1 FROM forms
+                    WHERE source = 'dict' AND kind = 'paradigm')
+            GROUP BY lemma_id;
         UPDATE lemmas SET richness =
-            (SELECT COUNT(*) FROM senses  s WHERE s.lemma_id = lemmas.id)
-          + (SELECT COUNT(*) FROM glosses g WHERE g.lemma_id = lemmas.id)
-          + 2 * (SELECT COUNT(*) FROM examples e WHERE e.lemma_id = lemmas.id)
-          + (SELECT COUNT(*) FROM forms f WHERE f.lemma_id = lemmas.id
-               AND f.source = 'dict' AND f.kind = 'paradigm')
+            COALESCE((SELECT r FROM rich WHERE rich.lemma_id = lemmas.id), 0);
+        DROP TABLE rich;
     """)
 
     db.executescript(INDEXES)
