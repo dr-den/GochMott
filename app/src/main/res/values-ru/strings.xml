@@ -91,4 +91,18 @@
     <string name="theme_dark">Тёмная</string>
     <string name="dynamic_color">Цвета обоев</string>
     <string name="dynamic_color_hint">Приложение в тон обоям телефона</string>
+    <string name="tutorial">Как пользоваться</string>
+
+    <string name="onboarding_skip">Пропустить</string>
+    <string name="onboarding_next">Далее</string>
+    <string name="onboarding_start">Начать</string>
+    <string name="onboarding_page_of">Страница %1$d из %2$d</string>
+    <string name="onboarding_welcome_title">Добро пожаловать в ГочМотт</string>
+    <string name="onboarding_welcome_body">Чеченско-русский словарь Мациева в кармане: около 19 100 статей с формами слов, примерами, идиомами и пословицами. Работает без интернета.</string>
+    <string name="onboarding_search_title">Поиск в обе стороны</string>
+    <string name="onboarding_search_body">Над строкой поиска переключите ЧЕ → РУ или РУ → ЧЕ. Вводите слово в любой форме — например, куьйго приведёт к своей статье. Ошиблись в написании — приложение предложит похожие слова.</string>
+    <string name="onboarding_quick_title">Перевод в любом приложении</string>
+    <string name="onboarding_quick_body">Выделите слово в браузере или мессенджере и выберите в меню «Гочдан» — перевод появится прямо поверх. Ещё можно поделиться текстом с ГочМотт.</string>
+    <string name="onboarding_tools_title">Копирование и настройки</string>
+    <string name="onboarding_tools_body">Долгое нажатие на слово, перевод или пример копирует его. В боковом меню можно скрыть ударения и знаки долготы, включить тёмную тему и прочитать вступление к словарю.</string>
 </resources>

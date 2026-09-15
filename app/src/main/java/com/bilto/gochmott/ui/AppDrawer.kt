@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PrivacyTip
@@ -44,6 +45,7 @@ fun AppDrawerContent(
     onBookClick: () -> Unit,
     onAboutClick: () -> Unit,
     onPrivacyPolicyClick: () -> Unit,
+    onTutorialClick: () -> Unit,
     prefs: DisplayPrefsViewModel = hiltViewModel()
 ) {
     val theme by prefs.theme.collectAsStateWithLifecycle()
@@ -123,6 +125,19 @@ fun AppDrawerContent(
                 icon = { Icon(Icons.Outlined.PrivacyTip, contentDescription = null) },
                 selected = false,
                 onClick = onPrivacyPolicyClick,
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
+
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+
+            NavigationDrawerItem(
+                label = { Text(stringResource(R.string.tutorial)) },
+                icon = { Icon(Icons.AutoMirrored.Outlined.HelpOutline, contentDescription = null) },
+                selected = false,
+                onClick = onTutorialClick,
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
             )
 
