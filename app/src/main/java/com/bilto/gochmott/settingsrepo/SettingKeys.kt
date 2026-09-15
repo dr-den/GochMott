@@ -17,7 +17,15 @@ object SettingKeys {
      * её разделов.
      */
     val bookLanguage = SettingKey.Str("bookLanguage", "RU")
+
+    /** Тема: имя из [ThemeMode]. По умолчанию — как в системе. */
+    val themeMode = SettingKey.Str("themeMode", ThemeMode.SYSTEM.name)
+
+    /** Цвета из обоев (Android 12+). На старых версиях не на что переключать. */
+    val dynamicColor = SettingKey.Bool("dynamicColor", true)
 }
+
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 
 sealed class SettingKey<T>(val name: String, val defaultValue: T) {

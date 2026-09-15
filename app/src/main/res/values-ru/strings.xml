@@ -85,4 +85,10 @@
     <string name="book_title">О словаре</string>
     <string name="book_lang_ru">Русский</string>
     <string name="book_lang_ce">Нохчийн</string>
+    <string name="theme">Тема</string>
+    <string name="theme_system">Авто</string>
+    <string name="theme_light">Светлая</string>
+    <string name="theme_dark">Тёмная</string>
+    <string name="dynamic_color">Цвета обоев</string>
+    <string name="dynamic_color_hint">Приложение в тон обоям телефона</string>
 </resources>
