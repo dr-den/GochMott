@@ -35,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -75,6 +76,7 @@ import com.bilto.gochmott.viewmodel.BookViewModel
 @Composable
 private fun BookScaffold(
     title: String,
+    subtitle: String? = null,
     language: BookLang,
     onLanguage: (BookLang) -> Unit,
     onBack: () -> Unit,
@@ -83,7 +85,14 @@ private fun BookScaffold(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(title, fontWeight = FontWeight.Bold) },
+                title = {
+                    Column {
+                        Text(title, fontWeight = FontWeight.Bold)
+                        if (subtitle != null) {
+                            Text(subtitle, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -183,6 +192,9 @@ fun BooksListScreen(
 
     BookScaffold(
         title = stringResource(R.string.books_title),
+        // Число — из списка книг, а не из текста в ресурсах: при новом словаре не устареет.
+        subtitle = books.size.takeIf { it > 0 }
+            ?.let { pluralStringResource(R.plurals.stats_books, it, it) },
         language = language,
         onLanguage = viewModel::setLanguage,
         onBack = onBack

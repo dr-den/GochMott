@@ -91,7 +91,6 @@
     <string name="dict_book_math1997">Матем, 1997</string>
     <string name="dict_book_comp2017">Комп, 2017</string>
     <string name="books_title">О словарях</string>
-    <string name="books_subtitle">Четыре словаря</string>
     <string name="link_reviewed">сверено вручную</string>
     <string name="book_entries">статей: %1$d</string>
     <string name="book_note_title">О тексте в приложении</string>
