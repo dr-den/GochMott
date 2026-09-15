@@ -131,4 +131,19 @@
     <string name="theme_dark">Dark</string>
     <string name="dynamic_color">Wallpaper colors</string>
     <string name="dynamic_color_hint">Match the app colors to your wallpaper</string>
+    <string name="tutorial">How to use</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_skip">Skip</string>
+    <string name="onboarding_next">Next</string>
+    <string name="onboarding_start">Get started</string>
+    <string name="onboarding_page_of">Page %1$d of %2$d</string>
+    <string name="onboarding_welcome_title">Welcome to GochMott</string>
+    <string name="onboarding_welcome_body">Matsiyev\'s Chechen-Russian dictionary, Karasayev and Matsiyev\'s Russian-Chechen dictionary, and dictionaries of math and computer terms in your pocket: translations, word forms, examples, idioms and proverbs. Works without the internet.</string>
+    <string name="onboarding_search_title">Search both ways</string>
+    <string name="onboarding_search_body">Switch between CE → RU and RU → CE above the search field. Type any form of a word — for example, куьйго leads to its entry. If you make a typo, the app suggests similar words.</string>
+    <string name="onboarding_quick_title">Translate in any app</string>
+    <string name="onboarding_quick_body">Select a word in a browser or messenger and choose “Gochdan” in the menu — the translation appears right on top. You can also share text to GochMott.</string>
+    <string name="onboarding_tools_title">Copy and customize</string>
+    <string name="onboarding_tools_body">Long-press a word, translation or example to copy it. In the side menu you can hide stress and vowel length marks, switch to the dark theme and read the introductions to the dictionaries.</string>
 </resources>

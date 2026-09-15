@@ -1,12 +1,19 @@
 package com.bilto.gochmott.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -17,6 +24,7 @@ import android.net.Uri
 import androidx.navigation.NavBackStackEntry
 import com.bilto.gochmott.viewmodel.AboutViewModel
 import com.bilto.gochmott.viewmodel.BookViewModel
+import com.bilto.gochmott.viewmodel.OnboardingViewModel
 import com.bilto.gochmott.viewmodel.PrivacyPolicyViewModel
 import com.bilto.gochmott.viewmodel.SearchViewModel
 import com.bilto.gochmott.viewmodel.UsagesViewModel
@@ -26,6 +34,7 @@ sealed class Screen(val route: String) {
     object Search : Screen("search")
     object About : Screen("about")
     object PrivacyPolicy : Screen("privacy_policy")
+    object Onboarding : Screen("onboarding")
 
     /**
      * Вводные части словарей. Три уровня: список книг -> разделы книги -> текст.
@@ -85,133 +94,159 @@ fun GochMottNavGraph(
 
     val searchViewModel: SearchViewModel = hiltViewModel()
 
-    NavHost(
-        navController = navController,
-        startDestination = Screen.Search.route
-    ) {
-        composable(Screen.Search.route) {
-            val drawerState = rememberDrawerState(DrawerValue.Closed)
-            val scope = rememberCoroutineScope()
+    val onboardingViewModel: OnboardingViewModel = hiltViewModel()
+    val showOnboarding by onboardingViewModel.showOnStart.collectAsStateWithLifecycle()
 
-            ModalNavigationDrawer(
-                drawerState = drawerState,
-                drawerContent = {
-                    AppDrawerContent(
-                        onBookClick = {
-                            scope.launch { drawerState.close() }
-                            navController.navigate(Screen.Books.route)
+    val openDetail: (Long) -> Unit = { lemmaId ->
+        navController.navigate(Screen.Detail.createRoute(lemmaId))
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        NavHost(
+            navController = navController,
+            startDestination = Screen.Search.route
+        ) {
+            composable(Screen.Search.route) {
+                val drawerState = rememberDrawerState(DrawerValue.Closed)
+                val scope = rememberCoroutineScope()
+
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
+                        AppDrawerContent(
+                            onBookClick = {
+                                scope.launch { drawerState.close() }
+                                navController.navigate(Screen.Books.route)
+                            },
+                            onAboutClick = {
+                                scope.launch { drawerState.close() }
+                                navController.navigate(Screen.About.route)
+                            },
+                            onPrivacyPolicyClick = {
+                                scope.launch { drawerState.close() }
+                                navController.navigate(Screen.PrivacyPolicy.route)
+                            },
+                            onTutorialClick = {
+                                scope.launch { drawerState.close() }
+                                navController.navigate(Screen.Onboarding.route)
+                            }
+                        )
+                    }
+                ) {
+                    SearchScreen(
+                        viewModel = searchViewModel,
+                        onNavigateToDetail = openDetail,
+                        onNavigateToUsages = { word ->
+                            navController.navigate(Screen.Usages.createRoute(word))
                         },
-                        onAboutClick = {
-                            scope.launch { drawerState.close() }
-                            navController.navigate(Screen.About.route)
-                        },
-                        onPrivacyPolicyClick = {
-                            scope.launch { drawerState.close() }
-                            navController.navigate(Screen.PrivacyPolicy.route)
-                        }
+                        onOpenDrawer = { scope.launch { drawerState.open() } }
                     )
                 }
+            }
+
+            composable(Screen.Onboarding.route) {
+                OnboardingScreen(onFinish = { navController.popBackStack() })
+            }
+
+            composable(Screen.About.route) {
+                val viewModel: AboutViewModel = hiltViewModel()
+                AboutScreen(
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() },
+                    onOpenPrivacyPolicy = { navController.navigate(Screen.PrivacyPolicy.route) }
+                )
+            }
+
+            composable(Screen.Books.route) {
+                BooksListScreen(
+                    onOpenBook = { code -> navController.navigate(Screen.Book.createRoute(code)) },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(Screen.Book.route, arguments = listOf(bookCodeArg())) { entry ->
+                val code = entry.bookCode() ?: return@composable
+                BookHubScreen(
+                    onOpenSection = { id ->
+                        navController.navigate(Screen.BookSection.createRoute(code, id))
+                    },
+                    onOpenAbbreviations = {
+                        navController.navigate(Screen.BookAbbreviations.createRoute(code))
+                    },
+                    onOpenAlphabet = {
+                        navController.navigate(Screen.BookAlphabet.createRoute(code))
+                    },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(
+                route = Screen.BookSection.route,
+                arguments = listOf(
+                    bookCodeArg(),
+                    navArgument(Screen.BookSection.ARG) { type = NavType.StringType }
+                )
+            ) { backStackEntry ->
+                val id = backStackEntry.arguments?.getString(Screen.BookSection.ARG) ?: return@composable
+                BookSectionScreen(sectionId = id, onBack = { navController.popBackStack() })
+            }
+
+            composable(Screen.BookAbbreviations.route, arguments = listOf(bookCodeArg())) {
+                AbbreviationsScreen(onBack = { navController.popBackStack() })
+            }
+
+            composable(Screen.BookAlphabet.route, arguments = listOf(bookCodeArg())) {
+                AlphabetScreen(onBack = { navController.popBackStack() })
+            }
+
+            composable(Screen.PrivacyPolicy.route) {
+                val viewModel: PrivacyPolicyViewModel = hiltViewModel()
+
+                PrivacyPolicyScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
+            }
+
+            composable(
+                route = Screen.Usages.route,
+                arguments = listOf(navArgument(UsagesViewModel.WORD_ARG) { type = NavType.StringType })
             ) {
-                SearchScreen(
-                    viewModel = searchViewModel,
-                    onNavigateToDetail = { lemmaId ->
-                        navController.navigate(Screen.Detail.createRoute(lemmaId))
-                    },
-                    onNavigateToUsages = { word ->
-                        navController.navigate(Screen.Usages.createRoute(word))
-                    },
-                    onOpenDrawer = { scope.launch { drawerState.open() } }
+                UsagesScreen(
+                    onBack = { navController.popBackStack() },
+                    onNavigateToDetail = openDetail
+                )
+            }
+
+            composable(
+                route = Screen.Detail.route,
+                arguments = listOf(navArgument(Screen.Detail.ARG) { type = NavType.LongType })
+            ) { backStackEntry ->
+                val lemmaId = backStackEntry.arguments?.getLong(Screen.Detail.ARG) ?: return@composable
+
+                DetailScreen(
+                    lemmaId = lemmaId,
+                    onBack = { navController.popBackStack() },
+                    onNavigateToDetail = openDetail,
+                    onSearchQuery = { query ->
+                        searchViewModel.searchFor(query)
+                        navController.popBackStack(Screen.Search.route, inclusive = false)
+                    }
                 )
             }
         }
 
-        composable(Screen.About.route) {
-            val viewModel: AboutViewModel = hiltViewModel()
-            AboutScreen(
-                viewModel = viewModel,
-                onBack = { navController.popBackStack() },
-                onOpenPrivacyPolicy = { navController.navigate(Screen.PrivacyPolicy.route) }
+        // При первом запуске вводный показ ложится поверх поиска, а не отдельным
+        // экраном в стеке: переход по ссылке из быстрого перевода открывает статью
+        // под ним, и после «Начать» пользователь сразу видит то, за чем пришёл.
+        // Пока настройка не прочитана, закрываем поиск фоном — иначе он мелькнёт.
+        when (showOnboarding) {
+            null -> Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
             )
-        }
-
-        composable(Screen.Books.route) {
-            BooksListScreen(
-                onOpenBook = { code -> navController.navigate(Screen.Book.createRoute(code)) },
-                onBack = { navController.popBackStack() }
-            )
-        }
-
-        composable(Screen.Book.route, arguments = listOf(bookCodeArg())) { entry ->
-            val code = entry.bookCode() ?: return@composable
-            BookHubScreen(
-                onOpenSection = { id ->
-                    navController.navigate(Screen.BookSection.createRoute(code, id))
-                },
-                onOpenAbbreviations = {
-                    navController.navigate(Screen.BookAbbreviations.createRoute(code))
-                },
-                onOpenAlphabet = {
-                    navController.navigate(Screen.BookAlphabet.createRoute(code))
-                },
-                onBack = { navController.popBackStack() }
-            )
-        }
-
-        composable(
-            route = Screen.BookSection.route,
-            arguments = listOf(
-                bookCodeArg(),
-                navArgument(Screen.BookSection.ARG) { type = NavType.StringType }
-            )
-        ) { backStackEntry ->
-            val id = backStackEntry.arguments?.getString(Screen.BookSection.ARG) ?: return@composable
-            BookSectionScreen(sectionId = id, onBack = { navController.popBackStack() })
-        }
-
-        composable(Screen.BookAbbreviations.route, arguments = listOf(bookCodeArg())) {
-            AbbreviationsScreen(onBack = { navController.popBackStack() })
-        }
-
-        composable(Screen.BookAlphabet.route, arguments = listOf(bookCodeArg())) {
-            AlphabetScreen(onBack = { navController.popBackStack() })
-        }
-
-        composable(Screen.PrivacyPolicy.route) {
-            val viewModel: PrivacyPolicyViewModel = hiltViewModel()
-
-            PrivacyPolicyScreen(viewModel = viewModel, onBack = { navController.popBackStack() })
-        }
-
-        composable(
-            route = Screen.Usages.route,
-            arguments = listOf(navArgument(UsagesViewModel.WORD_ARG) { type = NavType.StringType })
-        ) {
-            UsagesScreen(
-                onBack = { navController.popBackStack() },
-                onNavigateToDetail = { id -> navController.navigate(Screen.Detail.createRoute(id)) }
-            )
-        }
-
-        composable(
-            route = Screen.Detail.route,
-            arguments = listOf(navArgument(Screen.Detail.ARG) { type = NavType.LongType })
-        ) { backStackEntry ->
-            val lemmaId = backStackEntry.arguments?.getLong(Screen.Detail.ARG) ?: return@composable
-
-            DetailScreen(
-                lemmaId = lemmaId,
-                onBack = { navController.popBackStack() },
-                onNavigateToDetail = { id ->
-                    navController.navigate(Screen.Detail.createRoute(id))
-                },
-                onSearchQuery = { query ->
-                    searchViewModel.searchFor(query)
-                    navController.popBackStack(Screen.Search.route, inclusive = false)
-                }
-            )
+            true -> OnboardingScreen(onFinish = onboardingViewModel::finish)
+            false -> Unit
         }
     }
-
 
     LaunchedEffect(deepLink) {
         when (deepLink) {
@@ -224,7 +259,7 @@ fun GochMottNavGraph(
 
             is DictDeepLink.Entry -> {
                 navController.popBackStack(Screen.Search.route, inclusive = false)
-                navController.navigate(Screen.Detail.createRoute(deepLink.lemmaId))
+                openDetail(deepLink.lemmaId)
             }
         }
         onDeepLinkHandled()

@@ -37,6 +37,9 @@ object SettingKeys {
 
     /** Цвета из обоев (Android 12+). На старых версиях не на что переключать. */
     val dynamicColor = SettingKey.Bool("dynamicColor", true)
+
+    /** Вводный показ возможностей пройден или пропущен. */
+    val onboardingDone = SettingKey.Bool("onboardingDone", false)
 }
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
