@@ -11,3 +11,5 @@
 -dontwarn java.lang.Runtime$Version
 
 # -keep class com.bilto.gochmott.models.** { *; }
+# review-ktx ссылается на аннотацию из play-services, которой нет в зависимостях
+-dontwarn com.google.android.gms.common.annotation.NoNullnessRewrite

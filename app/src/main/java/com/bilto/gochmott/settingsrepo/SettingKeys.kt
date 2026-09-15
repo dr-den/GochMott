@@ -26,6 +26,15 @@ object SettingKeys {
 
     /** Вводный показ возможностей пройден или пропущен. */
     val onboardingDone = SettingKey.Bool("onboardingDone", false)
+
+    /** Сколько статей открыл пользователь — от этого зависит, когда просить оценку. */
+    val entriesOpened = SettingKey.Int("entriesOpened", 0)
+
+    /** Когда открыта первая статья, мс. 0 — ещё ни одной. */
+    val firstEntryOpenedAt = SettingKey.Long("firstEntryOpenedAt", 0L)
+
+    /** Когда последний раз показывали окно оценки, мс. 0 — не показывали. */
+    val reviewAskedAt = SettingKey.Long("reviewAskedAt", 0L)
 }
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }

@@ -1,5 +1,6 @@
 package com.bilto.gochmott.ui
 
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +22,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.bilto.gochmott.model.SearchDirection
 import com.bilto.gochmott.viewmodel.AboutViewModel
+import com.bilto.gochmott.viewmodel.FeedbackViewModel
 import com.bilto.gochmott.viewmodel.OnboardingViewModel
 import com.bilto.gochmott.viewmodel.PrivacyPolicyViewModel
 import com.bilto.gochmott.viewmodel.SearchViewModel
@@ -62,10 +64,12 @@ fun GochMottNavGraph(
 
 
     val searchViewModel: SearchViewModel = hiltViewModel()
+    val feedbackViewModel: FeedbackViewModel = hiltViewModel()
     val onboardingViewModel: OnboardingViewModel = hiltViewModel()
     val showOnboarding by onboardingViewModel.showOnStart.collectAsStateWithLifecycle()
 
     val openDetail: (Long) -> Unit = { lemmaId ->
+        feedbackViewModel.onEntryOpened()
         navController.navigate(Screen.Detail.createRoute(lemmaId))
     }
 
@@ -77,6 +81,15 @@ fun GochMottNavGraph(
             composable(Screen.Search.route) {
                 val drawerState = rememberDrawerState(DrawerValue.Closed)
                 val scope = rememberCoroutineScope()
+                val activity = LocalActivity.current
+
+                // Поиск снова на экране — как правило, пользователь вернулся из статьи.
+                // Удачный момент спросить об оценке: дело сделано, ничего не прерываем.
+                LaunchedEffect(Unit) {
+                    if (activity != null && showOnboarding == false) {
+                        feedbackViewModel.askForReviewIfDue(activity)
+                    }
+                }
 
                 ModalNavigationDrawer(
                     drawerState = drawerState,
@@ -97,6 +110,14 @@ fun GochMottNavGraph(
                             onTutorialClick = {
                                 scope.launch { drawerState.close() }
                                 navController.navigate(Screen.Onboarding.route)
+                            },
+                            onRateClick = {
+                                scope.launch { drawerState.close() }
+                                feedbackViewModel.rateApp()
+                            },
+                            onFeedbackClick = {
+                                scope.launch { drawerState.close() }
+                                feedbackViewModel.sendFeedback()
                             }
                         )
                     }
