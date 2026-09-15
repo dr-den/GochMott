@@ -91,7 +91,7 @@
     <string name="dict_book_math1997">Math, 1997</string>
     <string name="dict_book_comp2017">Comp, 2017</string>
     <string name="books_title">About the dictionaries</string>
-    <string name="books_subtitle">Five dictionaries in three books</string>
+    <string name="books_subtitle">Four dictionaries</string>
     <string name="link_reviewed">checked by hand</string>
     <string name="book_entries">%1$d entries</string>
     <string name="book_note_title">A note on the text in the app</string>
