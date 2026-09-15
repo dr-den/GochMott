@@ -125,4 +125,10 @@
         <item quantity="one">%d more example</item>
         <item quantity="other">%d more examples</item>
     </plurals>
+    <string name="theme">Theme</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="dynamic_color">Wallpaper colors</string>
+    <string name="dynamic_color_hint">Match the app colors to your wallpaper</string>
 </resources>

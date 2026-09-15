@@ -133,4 +133,10 @@
         <item quantity="many">Ещё %d примеров</item>
         <item quantity="other">Ещё %d примера</item>
     </plurals>
+    <string name="theme">Тема</string>
+    <string name="theme_system">Авто</string>
+    <string name="theme_light">Светлая</string>
+    <string name="theme_dark">Тёмная</string>
+    <string name="dynamic_color">Цвета обоев</string>
+    <string name="dynamic_color_hint">Приложение в тон обоям телефона</string>
 </resources>

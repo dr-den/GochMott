@@ -4,32 +4,30 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.mutableStateOf
 import com.bilto.gochmott.model.SearchDirection
+import com.bilto.gochmott.settingsrepo.DisplayPrefs
 import com.bilto.gochmott.ui.DictDeepLink
 import com.bilto.gochmott.ui.GochMottNavGraph
-import com.bilto.gochmott.ui.theme.GochMottTheme
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject lateinit var displayPrefs: DisplayPrefs
 
     private val deepLink = mutableStateOf<DictDeepLink?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
 
         if (savedInstanceState == null) deepLink.value = deepLinkFrom(intent)
-        setContent {
-            GochMottTheme {
-                GochMottNavGraph(
-                    deepLink = deepLink.value,
-                    onDeepLinkHandled = { deepLink.value = null }
-                )
-            }
+        setThemedContent(displayPrefs) {
+            GochMottNavGraph(
+                deepLink = deepLink.value,
+                onDeepLinkHandled = { deepLink.value = null }
+            )
         }
     }
 

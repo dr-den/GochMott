@@ -3,15 +3,14 @@ package com.bilto.gochmott
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.bilto.gochmott.settingsrepo.DisplayPrefs
 import com.bilto.gochmott.ui.QuickTranslateCard
-import com.bilto.gochmott.ui.theme.GochMottTheme
 import com.bilto.gochmott.viewmodel.QuickTranslateViewModel
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 /**
  * Быстрый перевод выделенного текста: всплывает поверх чужого приложения, когда пользователь
@@ -24,29 +23,28 @@ import dagger.hilt.android.AndroidEntryPoint
 @AndroidEntryPoint
 class QuickTranslateActivity : ComponentActivity() {
 
+    @Inject lateinit var displayPrefs: DisplayPrefs
+
     private val viewModel: QuickTranslateViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         if (savedInstanceState == null) viewModel.translateSelection(selectedText(intent))
 
-        setContent {
-            GochMottTheme {
-                val state by viewModel.state.collectAsStateWithLifecycle()
-                QuickTranslateCard(
-                    state = state,
-                    onSwapDirection = viewModel::onSwapDirection,
-                    onEntryClick = { lemmaId ->
-                        openInApp(MainActivity.entryIntent(this, lemmaId))
-                    },
-                    onSuggestionClick = viewModel::onSuggestionSelected,
-                    onOpenInApp = {
-                        openInApp(MainActivity.searchIntent(this, state.word, state.direction))
-                    },
-                    onDismiss = { finish() }
-                )
-            }
+        setThemedContent(displayPrefs) {
+            val state by viewModel.state.collectAsStateWithLifecycle()
+            QuickTranslateCard(
+                state = state,
+                onSwapDirection = viewModel::onSwapDirection,
+                onEntryClick = { lemmaId ->
+                    openInApp(MainActivity.entryIntent(this, lemmaId))
+                },
+                onSuggestionClick = viewModel::onSuggestionSelected,
+                onOpenInApp = {
+                    openInApp(MainActivity.searchIntent(this, state.word, state.direction))
+                },
+                onDismiss = { finish() }
+            )
         }
     }
 

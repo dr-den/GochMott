@@ -7,26 +7,36 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PrivacyTip
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bilto.gochmott.R
+import com.bilto.gochmott.settingsrepo.ThemeMode
+import com.bilto.gochmott.ui.theme.supportsDynamicColor
 import com.bilto.gochmott.viewmodel.DisplayPrefsViewModel
 
 @Composable
@@ -36,69 +46,115 @@ fun AppDrawerContent(
     onPrivacyPolicyClick: () -> Unit,
     prefs: DisplayPrefsViewModel = hiltViewModel()
 ) {
+    val theme by prefs.theme.collectAsStateWithLifecycle()
+
     ModalDrawerSheet {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp)) {
-            Text(
-                text = stringResource(R.string.app_name),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+        // Пунктов больше, чем влезает на маленький экран или при крупном шрифте.
+        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp)) {
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = stringResource(R.string.ch_ru_dict),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // Знаки читаются прямо из Marks — это Compose-состояние, поэтому статья
+            // под открытым меню перерисовывается сразу, без повторного запроса к БД.
+            DrawerSectionLabel(stringResource(R.string.display_section))
+
+            DrawerSwitch(
+                title = stringResource(R.string.show_ce_length),
+                subtitle = stringResource(R.string.show_ce_length_hint),
+                checked = Marks.showLength,
+                onCheckedChange = prefs::setChechenLength
             )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = stringResource(R.string.ch_ru_dict),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            DrawerSwitch(
+                title = stringResource(R.string.show_ru_stress),
+                subtitle = stringResource(R.string.show_ru_stress_hint),
+                checked = Marks.showStress,
+                onCheckedChange = prefs::setRussianStress
             )
+
+            theme?.let { current ->
+                ThemeSelector(selected = current.mode, onSelect = prefs::setThemeMode)
+                if (supportsDynamicColor) {
+                    DrawerSwitch(
+                        title = stringResource(R.string.dynamic_color),
+                        subtitle = stringResource(R.string.dynamic_color_hint),
+                        checked = current.dynamicColor,
+                        onCheckedChange = prefs::setDynamicColor
+                    )
+                }
+            }
+
+            HorizontalDivider(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                color = MaterialTheme.colorScheme.outlineVariant
+            )
+
+            // «О словарях» стоит выше «О приложении»: это содержимое книг, ради
+            // которых приложение и существует, а не сведения о самой программе.
+            NavigationDrawerItem(
+                label = { Text(stringResource(R.string.books_title)) },
+                icon = { Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null) },
+                selected = false,
+                onClick = onBookClick,
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
+
+            NavigationDrawerItem(
+                label = { Text(stringResource(R.string.about_app)) },
+                icon = { Icon(Icons.Outlined.Info, contentDescription = null) },
+                selected = false,
+                onClick = onAboutClick,
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
+
+            NavigationDrawerItem(
+                label = { Text(stringResource(R.string.privacy_policy)) },
+                icon = { Icon(Icons.Outlined.PrivacyTip, contentDescription = null) },
+                selected = false,
+                onClick = onPrivacyPolicyClick,
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
+
+            Spacer(Modifier.height(12.dp))
         }
+    }
+}
 
-        // Знаки читаются прямо из Marks — это Compose-состояние, поэтому статья
-        // под открытым меню перерисовывается сразу, без повторного запроса к БД.
-        DrawerSectionLabel(stringResource(R.string.display_section))
-
-        DrawerSwitch(
-            title = stringResource(R.string.show_ce_length),
-            subtitle = stringResource(R.string.show_ce_length_hint),
-            checked = Marks.showLength,
-            onCheckedChange = prefs::setChechenLength
-        )
-        DrawerSwitch(
-            title = stringResource(R.string.show_ru_stress),
-            subtitle = stringResource(R.string.show_ru_stress_hint),
-            checked = Marks.showStress,
-            onCheckedChange = prefs::setRussianStress
-        )
-
-        HorizontalDivider(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            color = MaterialTheme.colorScheme.outlineVariant
-        )
-
-        // «О словарях» стоит выше «О приложении»: это содержимое книг, ради
-        // которых приложение и существует, а не сведения о самой программе.
-        NavigationDrawerItem(
-            label = { Text(stringResource(R.string.books_title)) },
-            icon = { Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = null) },
-            selected = false,
-            onClick = onBookClick,
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-        )
-
-        NavigationDrawerItem(
-            label = { Text(stringResource(R.string.about_app)) },
-            icon = { Icon(Icons.Outlined.Info, contentDescription = null) },
-            selected = false,
-            onClick = onAboutClick,
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-        )
-
-        NavigationDrawerItem(
-            label = { Text(stringResource(R.string.privacy_policy)) },
-            icon = { Icon(Icons.Outlined.PrivacyTip, contentDescription = null) },
-            selected = false,
-            onClick = onPrivacyPolicyClick,
-            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-        )
+/** Системная, светлая или тёмная тема — три взаимоисключающих варианта в одну строку. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ThemeSelector(selected: ThemeMode, onSelect: (ThemeMode) -> Unit) {
+    val options = listOf(
+        ThemeMode.SYSTEM to stringResource(R.string.theme_system),
+        ThemeMode.LIGHT to stringResource(R.string.theme_light),
+        ThemeMode.DARK to stringResource(R.string.theme_dark)
+    )
+    Column(modifier = Modifier.padding(start = 28.dp, end = 16.dp, top = 6.dp, bottom = 6.dp)) {
+        Text(text = stringResource(R.string.theme), style = MaterialTheme.typography.bodyLarge)
+        Spacer(Modifier.height(8.dp))
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            options.forEachIndexed { index, (mode, label) ->
+                SegmentedButton(
+                    selected = mode == selected,
+                    onClick = { onSelect(mode) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                    // Без галочки: на ширине меню она съедает место у подписей.
+                    icon = {},
+                    label = { Text(label, maxLines = 1) }
+                )
+            }
+        }
     }
 }
 
