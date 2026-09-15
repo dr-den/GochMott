@@ -79,6 +79,28 @@ class AppInfoRepository @Inject constructor(
         }
     }
 
+    /** Страница приложения в Google Play; без Play Маркета — в браузере. */
+    fun openStorePage() {
+        val appId = BuildConfig.APPLICATION_ID
+        val market = Intent(Intent.ACTION_VIEW, "market://details?id=$appId".toUri())
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val web = Intent(Intent.ACTION_VIEW, "https://play.google.com/store/apps/details?id=$appId".toUri())
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            appContext.startActivity(market)
+        } catch (_: ActivityNotFoundException) {
+            try {
+                appContext.startActivity(web)
+            } catch (_: ActivityNotFoundException) {
+                Toast.makeText(
+                    appContext,
+                    appContext.getString(R.string.store_not_found),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
     companion object{
         const val FEEDBACK_EMAIL = "gochmottapp@gmail.com"
     }

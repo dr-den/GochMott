@@ -125,6 +125,7 @@
         <item quantity="one">%d more example</item>
         <item quantity="other">%d more examples</item>
     </plurals>
+    <string name="store_not_found">Couldn\'t open Google Play</string>
     <string name="theme">Theme</string>
     <string name="theme_system">System</string>
     <string name="theme_light">Light</string>
@@ -132,6 +133,8 @@
     <string name="dynamic_color">Wallpaper colors</string>
     <string name="dynamic_color_hint">Match the app colors to your wallpaper</string>
     <string name="tutorial">How to use</string>
+    <string name="rate_app">Rate the app</string>
+    <string name="send_feedback">Send feedback</string>
 
     <!-- Onboarding -->
     <string name="onboarding_skip">Skip</string>

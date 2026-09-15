@@ -133,6 +133,7 @@
         <item quantity="many">Ещё %d примеров</item>
         <item quantity="other">Ещё %d примера</item>
     </plurals>
+    <string name="store_not_found">Не удалось открыть Google Play</string>
     <string name="theme">Тема</string>
     <string name="theme_system">Авто</string>
     <string name="theme_light">Светлая</string>
@@ -140,6 +141,8 @@
     <string name="dynamic_color">Цвета обоев</string>
     <string name="dynamic_color_hint">Приложение в тон обоям телефона</string>
     <string name="tutorial">Как пользоваться</string>
+    <string name="rate_app">Оценить приложение</string>
+    <string name="send_feedback">Написать отзыв</string>
 
     <string name="onboarding_skip">Пропустить</string>
     <string name="onboarding_next">Далее</string>

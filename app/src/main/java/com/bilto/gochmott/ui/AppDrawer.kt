@@ -12,8 +12,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
+import androidx.compose.material.icons.outlined.Feedback
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.PrivacyTip
+import androidx.compose.material.icons.outlined.StarRate
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -46,6 +48,8 @@ fun AppDrawerContent(
     onAboutClick: () -> Unit,
     onPrivacyPolicyClick: () -> Unit,
     onTutorialClick: () -> Unit,
+    onRateClick: () -> Unit,
+    onFeedbackClick: () -> Unit,
     prefs: DisplayPrefsViewModel = hiltViewModel()
 ) {
     val theme by prefs.theme.collectAsStateWithLifecycle()
@@ -138,6 +142,22 @@ fun AppDrawerContent(
                 icon = { Icon(Icons.AutoMirrored.Outlined.HelpOutline, contentDescription = null) },
                 selected = false,
                 onClick = onTutorialClick,
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
+
+            NavigationDrawerItem(
+                label = { Text(stringResource(R.string.rate_app)) },
+                icon = { Icon(Icons.Outlined.StarRate, contentDescription = null) },
+                selected = false,
+                onClick = onRateClick,
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
+
+            NavigationDrawerItem(
+                label = { Text(stringResource(R.string.send_feedback)) },
+                icon = { Icon(Icons.Outlined.Feedback, contentDescription = null) },
+                selected = false,
+                onClick = onFeedbackClick,
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
             )
 
