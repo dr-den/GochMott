@@ -56,14 +56,14 @@
 
     <!-- Privacy policy -->
     <string name="privacy_policy">Privacy Policy</string>
-    <string name="privacy_last_updated">Last updated: 17 August 2026</string>
+    <string name="privacy_last_updated">Last updated: 15 September 2026</string>
     <string name="privacy_intro">GochMott is an offline dictionary. The app works entirely on your device and does not send your data anywhere.</string>
     <string name="privacy_data_title">Data we collect</string>
-    <string name="privacy_data_body">None. The app does not collect, store or transmit personal data. Search queries are processed only on your device and are not sent anywhere. The app has no user accounts and no registration.</string>
+    <string name="privacy_data_body">None. The app does not collect or transmit personal data. Search queries are processed only on your device and are not sent anywhere. The app has no user accounts and no registration. Settings, search history and the number of opened entries (used to decide when to suggest rating the app) are stored only on your device and are deleted together with the app.</string>
     <string name="privacy_permissions_title">Permissions and internet access</string>
     <string name="privacy_permissions_body">The app requests no Android permissions and has no internet access permission. The whole dictionary is bundled with the app and works without a network connection.</string>
     <string name="privacy_third_party_title">Third parties</string>
-    <string name="privacy_third_party_body">The app contains no advertising, no analytics and no third-party trackers.</string>
+    <string name="privacy_third_party_body">The app contains no advertising, no analytics and no third-party trackers. The in-app rating window is provided by Google Play through the Google Play In-App Review library: it is displayed by the Google Play app on your device, not by GochMott. If you leave a rating or review, it is received and processed by Google under its privacy policy (policies.google.com/privacy). GochMott does not learn whether or how you rated it. The “Rate the app” menu item simply opens the app page in Google Play.</string>
     <string name="privacy_feedback_title">Feedback</string>
     <string name="privacy_feedback_body">If you write to us at the address below, we receive your email address and the contents of your message. We use them only to answer you and to fix reported dictionary errors, and we do not pass them on to third parties.</string>
     <string name="privacy_children_title">Children</string>
