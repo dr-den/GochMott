@@ -18,7 +18,7 @@ android {
         applicationId = "com.bilto.gochmott"
         minSdk = 26
         targetSdk = 37
-        versionCode = 18
+        versionCode = 19
         versionName = "1.0.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
