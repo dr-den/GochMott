@@ -56,7 +56,7 @@ TILDE = '̃'   # чёрточка долготы (комбинирующая)
 ACUTE = '́'   # русское ударение
 PAL   = 'Ӏ'   # Ӏ — канонический вид палочки
 
-DB_USER_VERSION = 6   # держать синхронно с DatabaseHelper.EXPECTED_DB_VERSION
+DB_USER_VERSION = 7   # держать синхронно с DatabaseHelper.EXPECTED_DB_VERSION
 
 
 # --------------------------------------------------------------------------
@@ -70,40 +70,50 @@ DICTS = {
         book='maciev1961', title='Чеченско-русский словарь',
         authors='Мациев А. Г.', year=1961, place='М.',
         publisher='Гос. изд-во иностранных и национальных словарей',
-        lang_src='ce', lang_tgt='ru', priority=10),
+        lang_src='ce', lang_tgt='ru', priority=10,
+        authority='academic', quality='clean'),
 
     'karasaev1978': dict(
         book='karasaev1978', title='Русско-чеченский словарь',
         authors='Карасаев А. Т., Мациев А. Г.', year=1978, place='М.',
         publisher='Русский язык',
-        lang_src='ru', lang_tgt='ce', priority=20),
+        lang_src='ru', lang_tgt='ce', priority=20,
+        authority='academic', quality='clean'),
 
     'math1997_ce': dict(
         book='math1997',
         title='Чеченско-русский, русско-чеченский словарь математических терминов',
         authors='Умархаджиев С. М., Ахматукаев А. А.', year=1997, place='Грозный',
-        publisher='', lang_src='ce', lang_tgt='ru', priority=30),
+        publisher='', lang_src='ce', lang_tgt='ru', priority=30,
+        authority='specialized', quality='clean'),
     'math1997_ru': dict(
         book='math1997',
         title='Чеченско-русский, русско-чеченский словарь математических терминов',
         authors='Умархаджиев С. М., Ахматукаев А. А.', year=1997, place='Грозный',
-        publisher='', lang_src='ru', lang_tgt='ce', priority=31),
+        publisher='', lang_src='ru', lang_tgt='ce', priority=31,
+        authority='specialized', quality='clean'),
 
     'aslakhanov2012': dict(
         book='aslakhanov2012',
         title='Русско-чеченский словарь спортивных терминов и словосочетаний',
         authors='Аслаханов С.-А. М.', year=2012, place='Махачкала',
-        publisher='АЛЕФ', lang_src='ru', lang_tgt='ce', priority=45),
+        publisher='АЛЕФ', lang_src='ru', lang_tgt='ce', priority=45,
+        authority='specialized', quality='rough',
+        caveat='Оригинал свёрстан в две колонки и плохо вычитан: часть '
+               'статей разделена по догадке, в книге есть опечатки и '
+               'ошибки согласования.'),
     'comp2017_ru': dict(
         book='comp2017',
         title='Русско-чеченский, чеченско-русский словарь компьютерной лексики',
         authors='Умархаджиев С. М. и др.', year=2017, place='Грозный',
-        publisher='Академия наук ЧР', lang_src='ru', lang_tgt='ce', priority=40),
+        publisher='Академия наук ЧР', lang_src='ru', lang_tgt='ce', priority=40,
+        authority='specialized', quality='clean'),
     'comp2017_ce': dict(
         book='comp2017',
         title='Русско-чеченский, чеченско-русский словарь компьютерной лексики',
         authors='Умархаджиев С. М. и др.', year=2017, place='Грозный',
-        publisher='Академия наук ЧР', lang_src='ce', lang_tgt='ru', priority=41),
+        publisher='Академия наук ЧР', lang_src='ce', lang_tgt='ru', priority=41,
+        authority='specialized', quality='clean'),
 }
 
 
@@ -357,6 +367,34 @@ CREATE TABLE dicts(
     lang_src  TEXT NOT NULL,          -- язык заголовка: ce | ru
     lang_tgt  TEXT NOT NULL,          -- язык перевода
     priority  INTEGER NOT NULL,       -- порядок при равном ранге выдачи
+
+    -- Две НЕЗАВИСИМЫЕ оценки источника. Порядок выдачи ими не управляется —
+    -- за него по-прежнему отвечает `priority`; эти две нужны, чтобы
+    -- показать читателю, что перед ним, и дать отключить сомнительное.
+    --
+    -- Кто составил — можно ли доверять содержанию:
+    --   academic    академическое издание, рецензированное (Мациев, Карасаев)
+    --   specialized отраслевой или учебный словарь: издан, но составляли не
+    --               лексикографы, и вычитан он слабее
+    --   community   пользовательский вклад, не издан
+    authority TEXT NOT NULL DEFAULT 'academic'
+        CHECK (authority IN ('academic', 'specialized', 'community')),
+
+    -- В каком виде текст дошёл до базы — сколько в нём шума:
+    --   clean  вычитано, структура книги выдержана
+    --   rough  структура книги местами ломается, часть статей разделена по
+    --          догадке, в оригинале есть опечатки и ошибки согласования
+    --   raw    OCR без вычитки
+    quality   TEXT NOT NULL DEFAULT 'clean'
+        CHECK (quality IN ('clean', 'rough', 'raw')),
+
+    -- Чем именно плох ЭТОТ словарь — одна строка на весь словарь, не на
+    -- статью. Нужна потому, что причина у каждой книги своя: у одной
+    -- развалившаяся вёрстка, у другой невычитанный OCR, у третьей просто
+    -- некому было проверить. Из `quality` такой текст не вывести — оттуда
+    -- получится общее «источник ненадёжен». NULL, если книга ничем не плоха.
+    caveat    TEXT,
+
     n_lemmas  INTEGER NOT NULL DEFAULT 0,
     citation  TEXT NOT NULL);
 
@@ -807,10 +845,12 @@ def build(db_path, sources, class_forms='safe', want_fts=True, want_links=False,
         dict_id[code] = i
         db.execute(
             'INSERT INTO dicts(id,code,book,title,authors,year,place,publisher,'
-            'lang_src,lang_tgt,priority,citation) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+            'lang_src,lang_tgt,priority,authority,quality,caveat,citation)'
+            ' VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
             (i, code, m['book'], m['title'], m['authors'], m['year'], m.get('place'),
              m.get('publisher'), m['lang_src'], m['lang_tgt'], m['priority'],
-             citation(m)))
+             m.get('authority', 'academic'), m.get('quality', 'clean'),
+             m.get('caveat'), citation(m)))
 
     # ---- справочники ----------------------------------------------------
     pos_id = {}
@@ -1683,8 +1723,13 @@ def main(argv=None):
     print(f'  размер {os.path.getsize(args.db) / 1e6:.1f} МБ\n')
     for code, path in sources:
         m = DICTS[code]
+        mark = ('' if m.get('authority', 'academic') == 'academic'
+                and m.get('quality', 'clean') == 'clean'
+                else f'  [{m.get("authority", "academic")}/'
+                     f'{m.get("quality", "clean")}]')
         print(f'  {code:<14}{info["per_dict"][code]:>7} статей   '
-              f'{m["lang_src"]}->{m["lang_tgt"]}   {os.path.basename(path)}')
+              f'{m["lang_src"]}->{m["lang_tgt"]}   '
+              f'{os.path.basename(path)}{mark}')
     print()
     for k, v in counts.items():
         print(f'  {k:<14}{v:>9}')
