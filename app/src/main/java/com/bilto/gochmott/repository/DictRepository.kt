@@ -50,7 +50,8 @@ import javax.inject.Singleton
 @Singleton
 class DictRepository @Inject constructor(
     private val dbHelper: DatabaseHelper,
-    private val settings: SettingsRepository
+    private val settings: SettingsRepository,
+    private val sources: DictSources
 ) {
 
     private companion object {
@@ -104,6 +105,25 @@ class DictRepository @Inject constructor(
 
         /** Ключ ведра для примеров, не привязанных к значению (идиомы за «◊»). */
         const val IDIOM_KEY = -1L
+
+        /**
+         * Условие «книга не отключена» для SQL: пустая строка, если фильтр пуст.
+         *
+         * Коды книг приходят из самой базы, а не от пользователя, но кавычку всё
+         * равно удваиваем — чтобы корректность не держалась на этом знании.
+         */
+        fun notDisabled(off: Set<String>, column: String = "d.book"): String =
+            if (off.isEmpty()) ""
+            else "AND $column NOT IN (" + off.joinToString(",") { "'" + it.replace("'", "''") + "'" } + ")"
+    }
+
+    /**
+     * Отключённые в фильтре книги. Попутно читает список книг: плашкам нужны их
+     * оценки к тому моменту, когда выдача появится на экране.
+     */
+    private suspend fun disabledBooks(): Set<String> {
+        sources.load()
+        return sources.disabled()
     }
 
     // ---------------------------------------------------------------- поиск
@@ -126,7 +146,7 @@ class DictRepository @Inject constructor(
     suspend fun searchChechen(input: String): List<LemmaHit> = withContext(Dispatchers.IO) {
         val key = ChechenNormalizer.normalize(input)
         if (key.isEmpty()) return@withContext emptyList()
-        hitsForForms(key, CE)
+        hitsForForms(key, CE, disabledBooks())
     }
 
     /**
@@ -151,14 +171,15 @@ class DictRepository @Inject constructor(
         val phrase = RuNormalizer.normalize(input)
         if (phrase.isEmpty()) return@withContext emptyList()
         val words = wordsOf(phrase)
+        val off = disabledBooks()
 
-        val exact = (hitsForForms(phrase, RU) +
-                hitsForPhrase(phrase, RU) +
-                hitsForTranslationWords(words, "word", RU)).distinctBy { it.id }
+        val exact = (hitsForForms(phrase, RU, off) +
+                hitsForPhrase(phrase, RU, off) +
+                hitsForTranslationWords(words, "word", RU, off)).distinctBy { it.id }
         if (exact.isNotEmpty()) return@withContext exact
 
         val stems = words.map { RuStem.stem(it) }.filter { it.isNotEmpty() }
-        hitsForTranslationWords(stems, "stem", RU)
+        hitsForTranslationWords(stems, "stem", RU, off)
     }
 
     /**
@@ -180,7 +201,7 @@ class DictRepository @Inject constructor(
      * `linked` — ключ пришёл из другой книги. Обе это ключи поиска, а не слово из
      * книги, поэтому условие пишется как `source <> 'dict'`, а не `= 'gen'`.
      */
-    private fun hitsForForms(key: String, lang: String): List<LemmaHit> {
+    private fun hitsForForms(key: String, lang: String, off: Set<String>): List<LemmaHit> {
         val sql = """
             SELECT $LEMMA_COLUMNS,
                    MAX(f.is_headword) AS exact_headword,
@@ -189,7 +210,7 @@ class DictRepository @Inject constructor(
             JOIN lemmas l   ON l.id = f.lemma_id
             JOIN dicts  d   ON d.id = f.dict_id
             LEFT JOIN pos p ON p.id = l.pos_id
-            WHERE f.form_norm = ? AND f.lang = ?
+            WHERE f.form_norm = ? AND f.lang = ? ${notDisabled(off)}
             GROUP BY l.id
             ORDER BY only_gen, exact_headword DESC, $BOOK_ORDER
         """.trimIndent()
@@ -197,14 +218,14 @@ class DictRepository @Inject constructor(
     }
 
     /** Запрос B1: весь перевод целиком совпал с запросом — сильнейшее обратное попадание. */
-    private fun hitsForPhrase(phrase: String, lang: String): List<LemmaHit> {
+    private fun hitsForPhrase(phrase: String, lang: String, off: Set<String>): List<LemmaHit> {
         val sql = """
             SELECT $LEMMA_COLUMNS, 0 AS exact_headword, g.text AS matched
             FROM glosses g
             JOIN lemmas l   ON l.id = g.lemma_id
             JOIN dicts  d   ON d.id = g.dict_id
             LEFT JOIN pos p ON p.id = l.pos_id
-            WHERE g.text_norm = ? AND g.lang = ?
+            WHERE g.text_norm = ? AND g.lang = ? ${notDisabled(off)}
             GROUP BY l.id
             ORDER BY $BOOK_ORDER
             LIMIT $HITS_LIMIT
@@ -226,7 +247,8 @@ class DictRepository @Inject constructor(
     private fun hitsForTranslationWords(
         keys: List<String>,
         column: String,
-        lang: String
+        lang: String,
+        off: Set<String>
     ): List<LemmaHit> {
         if (keys.isEmpty()) return emptyList()
         val distinct = keys.distinct()
@@ -242,7 +264,7 @@ class DictRepository @Inject constructor(
             JOIN dicts  d       ON d.id = t.dict_id
             LEFT JOIN pos p     ON p.id = l.pos_id
             LEFT JOIN glosses g ON g.id = t.target_id AND t.src IN (0, 3)
-            WHERE t.$column IN ($placeholders) AND t.lang = ?
+            WHERE t.$column IN ($placeholders) AND t.lang = ? ${notDisabled(off)}
             GROUP BY l.id
             HAVING COUNT(DISTINCT t.$column) = ${distinct.size}
             ORDER BY best_src, $BOOK_ORDER
@@ -273,6 +295,7 @@ class DictRepository @Inject constructor(
     suspend fun chechenUsages(input: String): UsageEntry? = withContext(Dispatchers.IO) {
         val key = ChechenNormalizer.normalize(input)
         if (key.length < MIN_FUZZY_LEN || key.contains(' ')) return@withContext null
+        val off = disabledBooks()
 
         // target_id указывает в glosses ЛИБО в examples — таблицы разные, а id у них
         // независимые и пересекаются. Поэтому джойн разводится по `src`, иначе
@@ -285,7 +308,7 @@ class DictRepository @Inject constructor(
             JOIN dicts  d        ON d.id = t.dict_id
             LEFT JOIN glosses  g ON g.id = t.target_id AND t.src IN (0, 3)
             LEFT JOIN examples e ON e.id = t.target_id AND t.src IN (1, 2)
-            WHERE t.word = ? AND t.lang = ?
+            WHERE t.word = ? AND t.lang = ? ${notDisabled(off)}
             ORDER BY t.src, d.priority, l.ordering
             LIMIT $USAGE_LIMIT
         """.trimIndent()
@@ -354,6 +377,7 @@ class DictRepository @Inject constructor(
         if (skeleton.length < MIN_FUZZY_LEN) return@withContext emptyList()
         val maxEdits = FuzzyKey.maxEdits(skeleton.length)
         val maxRank = FuzzyKey.maxRank(skeleton.length)
+        val off = disabledBooks()
 
         val candidates = HashMap<Long, FuzzyCandidate>()
         fun offer(lemmaId: Long, candidateSkeleton: String) {
@@ -366,10 +390,14 @@ class DictRepository @Inject constructor(
 
         // 1) скелеты заголовков: куг/кюг → куьг, мостаг → мостагӀ, хума → хӀума
         val index = fuzzyIndex()
-        for (i in index.ceLemmaId.indices) offer(index.ceLemmaId[i], index.ceSkeleton[i])
+        val offMask = index.maskOf(off)
+        for (i in index.ceLemmaId.indices) {
+            if (index.ceBooks[i] and offMask != 0) continue
+            offer(index.ceLemmaId[i], index.ceSkeleton[i])
+        }
 
         // 2) подстрока по всем словоформам: части слова и падежные/глагольные формы
-        substringFormMatches(ChechenNormalizer.normalize(input), CE)
+        substringFormMatches(ChechenNormalizer.normalize(input), CE, off)
             .forEach { (lemmaId, skeleton2) -> offer(lemmaId, skeleton2) }
 
         val order = candidates.entries
@@ -396,8 +424,12 @@ class DictRepository @Inject constructor(
         val maxRank = FuzzyKey.maxRank(skeleton.length)
 
         val index = fuzzyIndex()
+        // Слово подсказываем, только если оно есть хоть в одной включённой книге:
+        // иначе тап по подсказке приводит к пустой выдаче.
+        val onMask = index.allBooks and index.maskOf(disabledBooks()).inv()
         val scored = ArrayList<Pair<String, FuzzyCandidate>>()
         for (i in index.ruWord.indices) {
+            if (index.ruBooks[i] and onMask == 0) continue
             val candidate = scoreCandidate(index.ruSkeleton[i], skeleton, maxEdits)
             if (candidate.rank > maxRank) continue
             scored.add(index.ruWord[i] to candidate)
@@ -433,7 +465,11 @@ class DictRepository @Inject constructor(
         )
 
     /** Словоформы нужного языка, содержащие ключ как подстроку (FTS5-триграммы + LIKE). */
-    private fun substringFormMatches(key: String, lang: String): List<Pair<Long, String>> {
+    private fun substringFormMatches(
+        key: String,
+        lang: String,
+        off: Set<String>
+    ): List<Pair<Long, String>> {
         if (key.length < MIN_FUZZY_LEN) return emptyList()
         val found = LinkedHashMap<Long, String>()
 
@@ -443,7 +479,8 @@ class DictRepository @Inject constructor(
                 FROM forms_trgm x
                 JOIN forms  f ON f.id = x.rowid
                 JOIN lemmas l ON l.id = f.lemma_id
-                WHERE forms_trgm MATCH ? AND f.lang = ?
+                JOIN dicts  d ON d.id = f.dict_id
+                WHERE forms_trgm MATCH ? AND f.lang = ? ${notDisabled(off)}
                 LIMIT $HITS_LIMIT
             """.trimIndent()
             try {
@@ -464,7 +501,8 @@ class DictRepository @Inject constructor(
             SELECT DISTINCT l.id, l.headword_fold
             FROM forms f
             JOIN lemmas l ON l.id = f.lemma_id
-            WHERE f.form_norm LIKE ? AND f.lang = ?
+            JOIN dicts  d ON d.id = f.dict_id
+            WHERE f.form_norm LIKE ? AND f.lang = ? ${notDisabled(off)}
             LIMIT $HITS_LIMIT
         """.trimIndent()
         patterns.forEach { pattern ->
@@ -496,12 +534,23 @@ class DictRepository @Inject constructor(
     // в чеченский примерный поиск. Скелеты русских слов считаются на месте —
     // в `trans_index` лежат только сами слова.
 
+    /**
+     * Книги у записей индекса — битовой маской, по биту на книгу: фильтр
+     * применяется на каждом поиске, а индекс строится один раз на всю сессию.
+     */
     private class FuzzyIndex(
         val ceLemmaId: LongArray,
         val ceSkeleton: Array<String>,
+        val ceBooks: IntArray,
         val ruWord: Array<String>,
-        val ruSkeleton: Array<String>
-    )
+        val ruSkeleton: Array<String>,
+        val ruBooks: IntArray,
+        private val bookBit: Map<String, Int>
+    ) {
+        val allBooks: Int = bookBit.values.fold(0) { acc, bit -> acc or bit }
+
+        fun maskOf(books: Set<String>): Int = books.fold(0) { acc, b -> acc or (bookBit[b] ?: 0) }
+    }
 
     @Volatile private var cachedIndex: FuzzyIndex? = null
     private val indexMutex = Mutex()
@@ -515,48 +564,71 @@ class DictRepository @Inject constructor(
         }
 
     private fun buildFuzzyIndex(): FuzzyIndex {
+        // dict_id -> бит его книги; половины одной книги делят бит. Книг в базе
+        // единицы, и 32 бит `Int` хватает с запасом.
+        val bookBit = LinkedHashMap<String, Int>()
+        val dictBit = HashMap<Long, Int>()
+        dbHelper.database.rawQuery("SELECT id, book FROM dicts ORDER BY priority", null).use { c ->
+            while (c.moveToNext()) {
+                val book = c.getStringOrNull(1) ?: continue
+                val bit = bookBit.getOrPut(book) { 1 shl (bookBit.size % Int.SIZE_BITS) }
+                dictBit[c.getLong(0)] = bit
+            }
+        }
+
         val ceIds = ArrayList<Long>(21_000)
         val ceKeys = ArrayList<String>(21_000)
-        val ruWords = LinkedHashSet<String>(32_000)
+        val ceBooks = ArrayList<Int>(21_000)
+        val ruWords = LinkedHashMap<String, Int>(32_000)
 
         dbHelper.database.rawQuery(
-            "SELECT id, lang, headword_fold, headword_norm FROM lemmas", null
+            "SELECT id, lang, headword_fold, headword_norm, dict_id FROM lemmas", null
         ).use { cursor ->
             while (cursor.moveToNext()) {
+                val bit = dictBit[cursor.getLong(4)] ?: 0
                 when (cursor.getStringOrNull(1)) {
                     CE -> {
                         val key = cursor.getStringOrNull(2) ?: continue
                         if (key.length < MIN_FUZZY_LEN) continue
                         ceIds.add(cursor.getLong(0))
                         ceKeys.add(key)
+                        ceBooks.add(bit)
                     }
                     // Русский заголовок книги рус→чеч — такой же кандидат в подсказки,
                     // как слово из перевода.
-                    RU -> cursor.getStringOrNull(3)?.let { ruWords.add(it) }
+                    RU -> cursor.getStringOrNull(3)?.let { ruWords.merge(it, bit, Int::or) }
                 }
             }
         }
 
         dbHelper.database.rawQuery(
-            "SELECT DISTINCT word FROM trans_index WHERE lang = ?", arrayOf(RU)
+            "SELECT DISTINCT word, dict_id FROM trans_index WHERE lang = ?", arrayOf(RU)
         ).use { cursor ->
-            while (cursor.moveToNext()) cursor.getStringOrNull(0)?.let { ruWords.add(it) }
+            while (cursor.moveToNext()) {
+                val word = cursor.getStringOrNull(0) ?: continue
+                ruWords.merge(word, dictBit[cursor.getLong(1)] ?: 0, Int::or)
+            }
         }
 
         val ruList = ArrayList<String>(ruWords.size)
         val ruKeys = ArrayList<String>(ruWords.size)
-        ruWords.forEach { word ->
+        val ruBooks = ArrayList<Int>(ruWords.size)
+        ruWords.forEach { (word, books) ->
             val key = FuzzyKey.russian(word)
             if (key.length < MIN_FUZZY_LEN) return@forEach
             ruList.add(word)
             ruKeys.add(key)
+            ruBooks.add(books)
         }
 
         return FuzzyIndex(
             ceLemmaId = ceIds.toLongArray(),
             ceSkeleton = ceKeys.toTypedArray(),
+            ceBooks = ceBooks.toIntArray(),
             ruWord = ruList.toTypedArray(),
-            ruSkeleton = ruKeys.toTypedArray()
+            ruSkeleton = ruKeys.toTypedArray(),
+            ruBooks = ruBooks.toIntArray(),
+            bookBit = bookBit
         )
     }
 
@@ -572,10 +644,11 @@ class DictRepository @Inject constructor(
      * русской стороне пробегает весь обратный индекс (93 467 строк), и делать
      * это при каждом старте — заставлять слабое устройство работать впустую.
      *
-     * Признак годности кэша — `PRAGMA user_version` установленной копии. Словарь
-     * read-only и целиком заменяется файлом, а версия при каждой пересборке
-     * поднимается (это стережёт `DbVersionTest`), так что другого признака не
-     * нужно: совпала версия — цифры те же.
+     * Признак годности кэша — сборка установленной копии: `PRAGMA user_version`
+     * и размер файла. Одной версии мало: базу пересобирают и без смены схемы —
+     * так в v7 пришёл словарь Аслаханова, — и подпись осталась бы про четыре
+     * книги. Словарь read-only и целиком заменяется файлом, так что совпали
+     * версия и размер — цифры те же.
      *
      * В памяти держится ещё и [cachedStats]: за время сессии направление поиска
      * переключают много раз, и ходить за этим в Room каждый раз незачем.
@@ -584,8 +657,8 @@ class DictRepository @Inject constructor(
         cachedStats?.let { return it }
         return statsMutex.withLock {
             cachedStats ?: withContext(Dispatchers.IO) {
-                val version = dbHelper.installedVersion
-                readCachedStats(version) ?: computeStats().also { saveStats(version, it) }
+                val build = "${dbHelper.installedVersion}:${dbHelper.installedSize}"
+                readCachedStats(build) ?: computeStats().also { saveStats(build, it) }
             }.also { cachedStats = it }
         }
     }
@@ -612,36 +685,42 @@ class DictRepository @Inject constructor(
         )
     }
 
-    /** `версия|книг|чеченских|русских`; чужая версия или мусор -> null, пересчитаем. */
-    private suspend fun readCachedStats(version: Int): DictStats? {
+    /** `сборка|книг|чеченских|русских`; чужая сборка или мусор -> null, пересчитаем. */
+    private suspend fun readCachedStats(build: String): DictStats? {
         val raw = settings.getOrNull(SettingKeys.dictStats).orEmpty()
         val parts = raw.split(STATS_SEP)
-        if (parts.size != 4) return null
-        val numbers = parts.map { it.toIntOrNull() ?: return null }
-        if (numbers[0] != version) return null
+        if (parts.size != 4 || parts[0] != build) return null
+        val numbers = parts.drop(1).map { it.toIntOrNull() ?: return null }
         return DictStats(
-            books = numbers[1],
-            chechenWords = numbers[2],
-            russianWords = numbers[3]
+            books = numbers[0],
+            chechenWords = numbers[1],
+            russianWords = numbers[2]
         )
     }
 
-    private fun saveStats(version: Int, stats: DictStats) {
+    private fun saveStats(build: String, stats: DictStats) {
         settings.set(
             SettingKeys.dictStats,
-            listOf(version, stats.books, stats.chechenWords, stats.russianWords)
+            listOf(build, stats.books, stats.chechenWords, stats.russianWords)
                 .joinToString(STATS_SEP.toString())
         )
     }
 
     // ------------------------------------------------------------- карточка
 
+    /**
+     * Карточка статьи. Отключённые в фильтре книги в неё не подмешиваются, но
+     * саму статью показываем, даже если её книга отключена: её открыли явно —
+     * по отсылке или из «В других словарях».
+     */
     suspend fun getEntryDetail(lemmaId: Long): EntryDetail = withContext(Dispatchers.IO) {
+        val off = disabledBooks()
         val lemma = getLemmaHit(lemmaId)
         val examplesBySense = getExamples(lemmaId)
         // Книги, где та же статья: их примеры вливаются в значения эталона,
         // а значения, которых у него нет, встают отдельной строкой с плашкой.
-        val siblings = mergedSiblings(lemmaId)
+        val links = linkGroupsAround(lemmaId, off)
+        val siblings = mergedSiblings(lemmaId, links)
         val (combined, idioms) = combineWithSiblings(
             lemmaId,
             getSenses(lemmaId, examplesBySense),
@@ -651,7 +730,7 @@ class DictRepository @Inject constructor(
         // Книги, где наше слово стоит переводом, а заголовком — его русский
         // эквивалент. Поиск ЧЕ→РУ их не видит, а пара настоящая.
         val senses = collapseTwins(
-            addMirrors(combined, lemma.lang, mirrorEntries(lemmaId), headwordMateGlosses(lemmaId))
+            addMirrors(combined, lemma.lang, mirrorEntries(lemmaId, off), headwordMateGlosses(lemmaId))
         )
         EntryDetail(
             lemma = lemma.copy(classes = getClasses(lemmaId)),
@@ -660,7 +739,10 @@ class DictRepository @Inject constructor(
             idioms = idioms,
             refs = getRefs(lemmaId, withTargetSenses = senses.isEmpty()),
             source = getSource(lemmaId),
-            related = getRelated(lemmaId),
+            // Связь, которую группировка отдала соседнему омониму, здесь не
+            // показываем: спортивное «пасовать» Аслаханова относится ко второму
+            // «пасовать» Карасаева, а не к картёжному первому.
+            related = getRelated(lemmaId, off).filterNot { it.lemmaId in links.elsewhere },
             classNotes = classNotesFor(lemmaId, siblings)
         )
     }
@@ -709,7 +791,7 @@ class DictRepository @Inject constructor(
      * `conflict` — не ошибка сборки, а разночтение источников: показываем оба
      * варианта с указанием книги, а не выбираем победителя.
      */
-    private fun getRelated(lemmaId: Long): List<LinkedEntry> {
+    private fun getRelated(lemmaId: Long, off: Set<String>): List<LinkedEntry> {
         val sql = """
             SELECT o.id, o.headword, o.lang, o.homonym, od.title,
                    k.method, k.confidence, k.conflict, k.reviewed, k.note
@@ -717,7 +799,7 @@ class DictRepository @Inject constructor(
             JOIN lemmas o  ON o.id = CASE WHEN k.a_lemma_id = ? THEN k.b_lemma_id
                                           ELSE k.a_lemma_id END
             JOIN dicts  od ON od.id = o.dict_id
-            WHERE k.a_lemma_id = ? OR k.b_lemma_id = ?
+            WHERE (k.a_lemma_id = ? OR k.b_lemma_id = ?) ${notDisabled(off, "od.book")}
             ORDER BY k.confidence DESC, od.priority
         """.trimIndent()
         val id = lemmaId.toString()
@@ -1072,16 +1154,46 @@ class DictRepository @Inject constructor(
      * показывает своё: подмешивать туда чужое значило бы прятать, чем эта книга
      * от эталона отличается, а ради этого её и открыли.
      */
-    private fun mergedSiblings(lemmaId: Long): List<MergedRef> {
-        val group = linkClosure(lemmaId)
+    private fun mergedSiblings(lemmaId: Long, links: LinkNeighbourhood): List<MergedRef> {
+        val group = links.group
         if (group.size < 2) return emptyList()
         val priority = dictPriority(group)
         val ordered = group.sortedBy { priority[it] ?: Int.MAX_VALUE }
         if (ordered.first() != lemmaId) return emptyList()
 
-        val rest = ordered.drop(1)
-        val books = dictRefs(rest)
-        return rest.mapNotNull { books[it] }
+        return ordered.drop(1).mapNotNull { links.books[it] }
+    }
+
+    /**
+     * Группы связанных статей вокруг открытой.
+     *
+     * [group] — своя группа (пусто, если статья ни с кем не сливается),
+     * [elsewhere] — статьи, которые достались другим группам той же компоненты,
+     * обычно соседнему омониму.
+     */
+    private class LinkNeighbourhood(
+        val group: List<Long>,
+        val elsewhere: Set<Long>,
+        val books: Map<Long, MergedRef>
+    )
+
+    private fun linkGroupsAround(lemmaId: Long, off: Set<String>): LinkNeighbourhood {
+        val closure = linkClosure(lemmaId)
+        if (closure.size < 2) return LinkNeighbourhood(emptyList(), emptySet(), emptyMap())
+        // Отключённая книга выпадает из группы целиком — и как донор, и как
+        // эталон: без Мациева эталоном становится следующая по приоритету книга.
+        val books = dictRefs(closure)
+        val candidates = closure.filterTo(LinkedHashSet()) {
+            it == lemmaId || books[it]?.dictBook !in off
+        }
+        // Компонента связности — ещё не группа: через статью другой книги в неё
+        // попадают соседние омонимы, см. [LinkGroups].
+        val groups = linkGroupsWithin(candidates)
+        return LinkNeighbourhood(
+            group = groups.firstOrNull { lemmaId in it }.orEmpty(),
+            elsewhere = groups.filterNot { lemmaId in it }.flatMapTo(HashSet()) { it },
+            books = books
+        )
     }
 
     /** Вся группа связанных статей: `lemma_links` попарны, транзитивность добираем сами. */
@@ -1177,7 +1289,7 @@ class DictRepository @Inject constructor(
      * `math1997_ru`) зеркалят друг друга сплошь — 1 558 пар из 2 627, — и
      * показывать их незачем: чеченская половина и так ищется напрямую.
      */
-    private fun mirrorEntries(lemmaId: Long): List<MirrorEntry> {
+    private fun mirrorEntries(lemmaId: Long, off: Set<String>): List<MirrorEntry> {
         val self = dbHelper.database.rawQuery(
             "SELECT l.headword_norm, l.lang, d.book FROM lemmas l " +
                 "JOIN dicts d ON d.id = l.dict_id WHERE l.id = ?",
@@ -1193,7 +1305,7 @@ class DictRepository @Inject constructor(
             FROM glosses g
             JOIN lemmas o ON o.id = g.lemma_id
             JOIN dicts  d ON d.id = g.dict_id
-            WHERE g.text_norm = ? AND g.lang = ? AND d.book <> ?
+            WHERE g.text_norm = ? AND g.lang = ? AND d.book <> ? ${notDisabled(off)}
             GROUP BY o.id
             ORDER BY d.priority, o.ordering
             LIMIT $MIRROR_LIMIT
@@ -1545,37 +1657,48 @@ class DictRepository @Inject constructor(
         }
     }
 
-    /** Группы связанных статей ВНУТРИ переданного множества; одиночки опущены. */
+    /**
+     * Группы связанных статей ВНУТРИ переданного множества; одиночки опущены.
+     * Как из связей получаются группы — см. [LinkGroups].
+     */
     private fun linkGroupsWithin(ids: Set<Long>): List<List<Long>> {
         if (ids.size < 2) return emptyList()
         val placeholders = ids.joinToString(",") { "?" }
         val args = ids.map { it.toString() }.toTypedArray()
         val sql = """
-            SELECT a_lemma_id, b_lemma_id FROM lemma_links
+            SELECT a_lemma_id, b_lemma_id, confidence FROM lemma_links
             WHERE a_lemma_id IN ($placeholders) AND b_lemma_id IN ($placeholders)
               AND confidence >= $MIN_MERGE_CONFIDENCE
         """.trimIndent()
-        val parent = HashMap<Long, Long>()
-        fun find(x: Long): Long {
-            var cur = x
-            while (parent[cur] != cur) {
-                parent[cur] = parent[parent[cur]]!!
-                cur = parent[cur]!!
+        val edges = dbHelper.database.rawQuery(sql, args + args).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(LinkGroups.Edge(cursor.getLong(0), cursor.getLong(1), cursor.getDouble(2)))
+                }
             }
-            return cur
         }
-        dbHelper.database.rawQuery(sql, args + args).use { cursor ->
+        if (edges.isEmpty()) return emptyList()
+
+        val linked = edges.flatMapTo(HashSet()) { listOf(it.a, it.b) }.toList()
+        val books = dictRefs(linked).mapValues { it.value.dictBook }
+        return LinkGroups.build(edges, books, glossWordsOf(linked))
+    }
+
+    /** Слова переводов статей — чтобы отличить, к какому омониму относится связь. */
+    private fun glossWordsOf(ids: List<Long>): Map<Long, Set<String>> {
+        if (ids.isEmpty()) return emptyMap()
+        val placeholders = ids.joinToString(",") { "?" }
+        val texts = HashMap<Long, MutableList<String>>()
+        dbHelper.database.rawQuery(
+            "SELECT lemma_id, text_norm FROM glosses WHERE lemma_id IN ($placeholders)",
+            ids.map { it.toString() }.toTypedArray()
+        ).use { cursor ->
             while (cursor.moveToNext()) {
-                val a = cursor.getLong(0)
-                val b = cursor.getLong(1)
-                parent.getOrPut(a) { a }
-                parent.getOrPut(b) { b }
-                val ra = find(a)
-                val rb = find(b)
-                if (ra != rb) parent[ra] = rb
+                val text = cursor.getStringOrNull(1) ?: continue
+                texts.getOrPut(cursor.getLong(0)) { mutableListOf() } += text
             }
         }
-        return parent.keys.groupBy { find(it) }.values.filter { it.size > 1 }.map { it.sorted() }
+        return texts.mapValues { LinkGroups.words(it.value) }
     }
 
     private fun dictPriority(ids: List<Long>): Map<Long, Int> {

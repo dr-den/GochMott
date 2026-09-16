@@ -24,7 +24,7 @@ RENAMED = [
     ('subs.ru', 'subs.text', 'подпункт примера'),
 ]
 
-EXPECT = 6     # держать синхронно с DB_USER_VERSION в сборщике
+EXPECT = 7     # держать синхронно с DB_USER_VERSION в сборщике
 
 OK, BAD = '  ok  ', '  РАЗОШЛОСЬ  '
 

@@ -3,6 +3,7 @@ package com.bilto.gochmott.di
 import android.content.Context
 import com.bilto.gochmott.db.DatabaseHelper
 import com.bilto.gochmott.repository.DictRepository
+import com.bilto.gochmott.repository.DictSources
 import com.bilto.gochmott.settingsrepo.SettingsRepository
 import dagger.Module
 import dagger.Provides
@@ -32,6 +33,7 @@ object AppModule {
     @Singleton
     fun provideDictRepository(
         dbHelper: DatabaseHelper,
-        settings: SettingsRepository
-    ): DictRepository = DictRepository(dbHelper, settings)
+        settings: SettingsRepository,
+        sources: DictSources
+    ): DictRepository = DictRepository(dbHelper, settings, sources)
 }

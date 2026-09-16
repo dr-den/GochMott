@@ -111,10 +111,12 @@ fun SearchScreen(
                         )
                     }
                 },
+                actions = { DictFilterButton() },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             )
         }
@@ -674,7 +676,7 @@ private fun HitCard(hit: LemmaHit, onClick: () -> Unit) {
                 // словарей сразу, и без подписи выдача выглядит как список повторов.
                 Spacer(Modifier.weight(1f))
                 DictBadgeChip(
-                    hit.dictBook, hit.dictYear, Modifier.alignByBaseline(), hit.alsoIn.size
+                    hit.dictBook, hit.dictYear, Modifier.alignByBaseline(), hit.alsoIn
                 )
             }
 

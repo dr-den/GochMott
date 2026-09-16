@@ -208,6 +208,45 @@ data class DictSource(
     val citation: String
 )
 
+/** `dicts.authority` — кто составил книгу. Порядок — от надёжного к сомнительному. */
+enum class SourceAuthority {
+    ACADEMIC, SPECIALIZED, COMMUNITY;
+
+    companion object {
+        /** Незнакомое значение (база новее приложения) читаем как академическое — так же, как DEFAULT в схеме. */
+        fun of(raw: String?): SourceAuthority =
+            entries.firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: ACADEMIC
+    }
+}
+
+/** `dicts.quality` — сколько шума в тексте. Порядок — от чистого к грязному. */
+enum class SourceQuality {
+    CLEAN, ROUGH, RAW;
+
+    companion object {
+        fun of(raw: String?): SourceQuality =
+            entries.firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: CLEAN
+    }
+}
+
+/**
+ * Книга (`dicts.book`) с оценкой источника — для плашки, её подсказки и фильтра.
+ *
+ * Строка на КНИГУ, а не на направление: у `math1997_ce` и `math1997_ru` оценки
+ * общие, и отключают читатели книгу, которую держали в руках. Если половины
+ * книги оценены по-разному, берётся худшая оценка — предупредить лишний раз
+ * дешевле, чем промолчать.
+ */
+data class BookInfo(
+    val book: String,
+    val year: Int?,
+    val title: String,
+    val authority: SourceAuthority,
+    val quality: SourceQuality,
+    /** Чем плоха книга, одной строкой; null — ничем. */
+    val caveat: String?
+)
+
 /**
  * То же слово в другой книге (`lemma_links`). Поля книг НЕ сливаются: связь говорит
  * лишь «это одно слово». [conflict] — список полей, в которых книги расходятся

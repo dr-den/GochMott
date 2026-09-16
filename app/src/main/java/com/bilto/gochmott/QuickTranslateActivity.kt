@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.bilto.gochmott.repository.DictSources
 import com.bilto.gochmott.settingsrepo.DisplayPrefs
 import com.bilto.gochmott.ui.QuickTranslateCard
 import com.bilto.gochmott.viewmodel.QuickTranslateViewModel
@@ -24,6 +25,7 @@ import javax.inject.Inject
 class QuickTranslateActivity : ComponentActivity() {
 
     @Inject lateinit var displayPrefs: DisplayPrefs
+    @Inject lateinit var dictSources: DictSources
 
     private val viewModel: QuickTranslateViewModel by viewModels()
 
@@ -31,7 +33,7 @@ class QuickTranslateActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) viewModel.translateSelection(selectedText(intent))
 
-        setThemedContent(displayPrefs) {
+        setThemedContent(displayPrefs, dictSources) {
             val state by viewModel.state.collectAsStateWithLifecycle()
             QuickTranslateCard(
                 state = state,

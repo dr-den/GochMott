@@ -6,10 +6,15 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.bilto.gochmott.repository.DictSources
 import com.bilto.gochmott.settingsrepo.DisplayPrefs
+import com.bilto.gochmott.ui.BookCatalog
+import com.bilto.gochmott.ui.LocalBookCatalog
 import com.bilto.gochmott.ui.theme.GochMottTheme
 import com.bilto.gochmott.ui.theme.isDark
 
@@ -23,14 +28,21 @@ import com.bilto.gochmott.ui.theme.isDark
  * Значки строки состояния и навигации тоже следуют выбранной теме, а не
  * системной: `enableEdgeToEdge()` без параметров смотрит на систему и при
  * тёмной теме в светлой системе рисовал бы тёмные значки на тёмном фоне.
+ *
+ * Сюда же кладётся каталог книг ([LocalBookCatalog]): плашка словаря красится
+ * по оценке книги и показывает её паспорт, а протаскивать это через каждую
+ * модель выдачи незачем.
  */
 fun ComponentActivity.setThemedContent(
     displayPrefs: DisplayPrefs,
+    dictSources: DictSources,
     content: @Composable () -> Unit
 ) {
     enableEdgeToEdge()
     setContent {
         val prefs by displayPrefs.theme.collectAsStateWithLifecycle(initialValue = null)
+        val books by dictSources.books.collectAsStateWithLifecycle()
+        val catalog = remember(books) { BookCatalog(books.associateBy { it.book }) }
         prefs?.let { theme ->
             val dark = theme.isDark()
             DisposableEffect(dark) {
@@ -40,7 +52,9 @@ fun ComponentActivity.setThemedContent(
                 )
                 onDispose {}
             }
-            GochMottTheme(darkTheme = dark, dynamicColor = theme.dynamicColor, content = content)
+            GochMottTheme(darkTheme = dark, dynamicColor = theme.dynamicColor) {
+                CompositionLocalProvider(LocalBookCatalog provides catalog, content = content)
+            }
         }
     }
 }

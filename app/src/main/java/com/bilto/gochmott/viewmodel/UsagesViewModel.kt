@@ -5,10 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bilto.gochmott.model.UsageEntry
 import com.bilto.gochmott.repository.DictRepository
+import com.bilto.gochmott.repository.DictSources
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -29,6 +31,7 @@ sealed class UsagesState {
 @HiltViewModel
 class UsagesViewModel @Inject constructor(
     private val repository: DictRepository,
+    sources: DictSources,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -38,9 +41,13 @@ class UsagesViewModel @Inject constructor(
     val state: StateFlow<UsagesState> = _state.asStateFlow()
 
     init {
+        // Подписка, а не разовый запрос: фильтр словарей можно поменять в
+        // карточке, открытой отсюда, и по возвращении список должен ему отвечать.
         viewModelScope.launch {
-            val entry = repository.chechenUsages(word)
-            _state.value = if (entry == null) UsagesState.Empty else UsagesState.Success(entry)
+            sources.disabledBooks.collectLatest {
+                val entry = repository.chechenUsages(word)
+                _state.value = if (entry == null) UsagesState.Empty else UsagesState.Success(entry)
+            }
         }
     }
 

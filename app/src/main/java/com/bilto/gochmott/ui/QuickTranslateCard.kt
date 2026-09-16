@@ -260,7 +260,7 @@ private fun QuickEntry(hit: LemmaHit, onClick: () -> Unit) {
             }
             Spacer(Modifier.weight(1f))
             DictBadgeChip(
-                hit.dictBook, hit.dictYear, Modifier.alignByBaseline(), hit.alsoIn.size
+                hit.dictBook, hit.dictYear, Modifier.alignByBaseline(), hit.alsoIn
             )
         }
         hit.firstSenses.forEachIndexed { i, gloss ->

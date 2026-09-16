@@ -18,8 +18,8 @@ android {
         applicationId = "com.bilto.gochmott"
         minSdk = 26
         targetSdk = 37
-        versionCode = 19
-        versionName = "1.0.5"
+        versionCode = 20
+        versionName = "1.0.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -143,6 +143,7 @@ val dictSources = linkedMapOf(
     "math1997_ru" to "math1997_ru.jsonl",
     "comp2017_ce" to "comp2017_ce.jsonl",
     "comp2017_ru" to "comp2017_ru.jsonl",
+    "aslakhanov2012" to "aslakhanov2012.jsonl",
 )
 
 val dictWorkDir = rootProject.file("rawSources/work")
@@ -226,12 +227,19 @@ val buildDictDb = tasks.register("buildDictDb") {
         dictDb.parentFile.mkdirs()
         // Без консоли Python в Windows пишет в кодировке системы (cp1251), а в ней
         // нет чеченской палочки «Ӏ» — первый же её print роняет сборку.
-        val exitCode = ProcessBuilder(command)
+        //
+        // Вывод читаем сами, а не через inheritIO(): задача идёт в демоне Gradle,
+        // и унаследованные потоки уходят в его консоль, а не в окно сборки. При
+        // падении сборщика на экране оставался один код возврата без причины.
+        val process = ProcessBuilder(command)
             .directory(rootProject.projectDir)
-            .inheritIO()
+            .redirectErrorStream(true)
             .apply { environment()["PYTHONUTF8"] = "1" }
             .start()
-            .waitFor()
+        process.inputStream.bufferedReader(Charsets.UTF_8).useLines { lines ->
+            lines.forEach { logger.lifecycle(it) }
+        }
+        val exitCode = process.waitFor()
         if (exitCode != 0) error("сборка dict.db не удалась, код $exitCode")
 
         dictStamp.writeText(dictFingerprint())

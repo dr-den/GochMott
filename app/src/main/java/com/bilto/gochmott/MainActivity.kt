@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.mutableStateOf
 import com.bilto.gochmott.model.SearchDirection
+import com.bilto.gochmott.repository.DictSources
 import com.bilto.gochmott.settingsrepo.DisplayPrefs
 import com.bilto.gochmott.ui.DictDeepLink
 import com.bilto.gochmott.ui.GochMottNavGraph
@@ -16,6 +17,7 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var displayPrefs: DisplayPrefs
+    @Inject lateinit var dictSources: DictSources
 
     private val deepLink = mutableStateOf<DictDeepLink?>(null)
 
@@ -23,7 +25,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         if (savedInstanceState == null) deepLink.value = deepLinkFrom(intent)
-        setThemedContent(displayPrefs) {
+        setThemedContent(displayPrefs, dictSources) {
             GochMottNavGraph(
                 deepLink = deepLink.value,
                 onDeepLinkHandled = { deepLink.value = null }

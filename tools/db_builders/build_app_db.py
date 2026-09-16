@@ -830,7 +830,14 @@ def build(db_path, sources, class_forms='safe', want_fts=True, want_links=False,
     """sources — список (code, jsonl_path) в порядке приоритета показа."""
     log = []
     if os.path.exists(db_path):
-        os.remove(db_path)
+        try:
+            os.remove(db_path)
+        except PermissionError:
+            # Windows не даёт удалить открытый файл. Чаще всего база открыта
+            # в DB Browser или в инспекторе Android Studio — без подсказки
+            # остаётся голый WinError 32 в кодировке консоли.
+            sys.exit(f'{db_path} занят другой программой (DB Browser for SQLite, '
+                     f'инспектор базы в Android Studio…). Закройте её и повторите сборку.')
     db = sqlite3.connect(db_path)
     db.executescript(SCHEMA)
 

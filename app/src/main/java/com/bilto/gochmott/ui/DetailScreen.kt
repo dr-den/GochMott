@@ -104,10 +104,12 @@ fun DetailScreen(
                         ))
                     }
                 },
+                actions = { DictFilterButton() },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             )
         }
@@ -503,6 +505,8 @@ private fun SenseBlock(
                     )
                 }
                 // Слева перевод со своим пояснением, справа книги — см. [senseBooks].
+                // Больше двух книг сворачиваются в «ещё N»: иначе ряд плашек
+                // выдавливает перевод в узкую колонку.
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = glossesText(sense.glosses),
@@ -511,17 +515,7 @@ private fun SenseBlock(
                             .weight(1f)
                             .copyOnLongPress(plainGlosses(sense.glosses))
                     )
-                    val books = senseBooks(sense)
-                    if (books.isNotEmpty()) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            modifier = Modifier.padding(start = 8.dp)
-                        ) {
-                            books.forEach { book ->
-                                DictBadgeChip(book.dictBook, book.dictYear)
-                            }
-                        }
-                    }
+                    DictBadgeRow(senseBooks(sense), Modifier.padding(start = 8.dp))
                 }
                 // Слитая статья набирает до трёх десятков примеров — столько
                 // разом не читают. Показываем первые, остальные по требованию.

@@ -43,7 +43,7 @@ class DatabaseHelper @Inject constructor(
          * при каждой пересборке БД поднимайте оба числа, иначе на устройствах со старой
          * копией она не обновится.
          */
-        const val EXPECTED_DB_VERSION = 6
+        const val EXPECTED_DB_VERSION = 7
 
         /** Файлы SQLite рядом с БД: от прежней копии к новой они не относятся. */
         private val SIDECAR_SUFFIXES = listOf("-journal", "-wal", "-shm")
@@ -85,16 +85,49 @@ class DatabaseHelper @Inject constructor(
             return dbVersion.value
         }
 
+    /**
+     * Размер установленной копии в байтах. Вместе с версией — признак сборки
+     * базы: пересобранная база той же версии отличается размером.
+     */
+    val installedSize: Long
+        get() {
+            database
+            return context.getDatabasePath(DB_NAME).length()
+        }
+
     private fun openDatabase(): SQLiteDatabase {
         val dbFile = context.getDatabasePath(DB_NAME)
 
         val localVersion = fetchSchemaVersion(dbFile)
+        val assetSize = assetSize()
         if (localVersion != EXPECTED_DB_VERSION) {
             Log.i(TAG, "$DB_NAME: версия копии $localVersion, нужна $EXPECTED_DB_VERSION — ставим из assets")
+            installFromAssets(dbFile)
+        } else if (assetSize > 0 && dbFile.length() != assetSize) {
+            Log.i(TAG, "$DB_NAME: версия та же, но размер ${dbFile.length()} против $assetSize в assets — ставим заново")
             installFromAssets(dbFile)
         }
         _dbVersion.value = fetchSchemaVersion(dbFile)
         return SQLiteDatabase.openDatabase(dbFile.absolutePath, null, OPEN_FLAGS)
+    }
+
+    /**
+     * Распакованный размер базы в assets; 0 — узнать не вышло.
+     *
+     * Одной версии мало: базу пересобирают и без смены схемы — так в v7 пришёл
+     * словарь Аслаханова, — и копия той же версии на устройстве оставалась
+     * старой, без новой книги. Файл read-only, пишет в него только установка,
+     * поэтому другой размер однозначно значит другую сборку. Совпадение размера
+     * у разных сборок не исключено, но на таком случае выручит версия.
+     *
+     * Ассет сжат, но AssetManager знает распакованную длину и отдаёт её в
+     * available() без распаковки.
+     */
+    private fun assetSize(): Long = try {
+        context.assets.open(DB_NAME).use { it.available().toLong() }
+    } catch (e: Exception) {
+        Log.w(TAG, "Не удалось узнать размер $DB_NAME в assets: ${e.message}")
+        0L
     }
 
     private fun fetchSchemaVersion(dbFile: File): Int = if (dbFile.exists()) readUserVersion(dbFile) ?: -1 else -1

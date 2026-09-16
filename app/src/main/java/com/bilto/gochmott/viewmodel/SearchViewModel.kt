@@ -8,6 +8,7 @@ import com.bilto.gochmott.model.LemmaHit
 import com.bilto.gochmott.model.SearchDirection
 import com.bilto.gochmott.model.UsageEntry
 import com.bilto.gochmott.repository.DictRepository
+import com.bilto.gochmott.repository.DictSources
 import com.bilto.gochmott.repository.SearchHistoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -78,7 +80,8 @@ sealed class SearchIntent {
 class SearchViewModel @Inject constructor(
     private val repository: DictRepository,
     private val dbHelper: DatabaseHelper,
-    private val historyRepository: SearchHistoryRepository
+    private val historyRepository: SearchHistoryRepository,
+    private val sources: DictSources
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SearchState())
@@ -91,6 +94,20 @@ class SearchViewModel @Inject constructor(
         initDatabase()
         observeDbInstall()
         observeHistory()
+        observeDictFilter()
+    }
+
+    /**
+     * Фильтр словарей поменялся — пересобираем выдачу под тем же запросом.
+     * Первое значение пропускаем: это то, с чем экран и так ищет.
+     */
+    private fun observeDictFilter() {
+        viewModelScope.launch {
+            sources.disabledBooks.drop(1).collect {
+                val current = _state.value
+                if (current.query.isNotBlank()) scheduleSearch(current.query, current.direction)
+            }
+        }
     }
 
     /** Ход установки словаря — экран показывает его вместо неопределённой крутилки. */
