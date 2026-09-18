@@ -24,7 +24,7 @@ RENAMED = [
     ('subs.ru', 'subs.text', 'подпункт примера'),
 ]
 
-EXPECT = 7     # держать синхронно с DB_USER_VERSION в сборщике
+EXPECT = 8      # держать синхронно с DB_USER_VERSION в сборщике
 
 OK, BAD = '  ok  ', '  РАЗОШЛОСЬ  '
 
@@ -133,6 +133,22 @@ def check_standalone(new, rep):
     n = one(new, "SELECT COUNT(*) FROM glosses WHERE lang='ru'"
                  " AND text LIKE '%'||char(769)||'%'")
     rep.note(f'русских переводов с ударением: {n}')
+
+    # Латинские гомоглифы в ОТОБРАЖАЕМОМ тексте. Ключи поиска они не ломают —
+    # ChechenNormalizer переводит `x`, `a`, `c`, `o`, `p`, `y`, `k` в кириллицу,
+    # поэтому статья находится. Но в карточке пользователь увидит чужую букву,
+    # и никакая другая проверка этого не поймает: в норме их уже нет.
+    lat = q(new, r"""
+        SELECT d.code, l.headword FROM lemmas l JOIN dicts d ON d.id = l.dict_id
+        WHERE l.lang = 'ce'
+          AND l.headword GLOB '*[a-zA-Z]*'
+          AND l.headword GLOB '*[а-яА-ЯёЁӀ]*'
+        LIMIT 20""")
+    n = one(new, r"""SELECT COUNT(*) FROM lemmas WHERE lang='ce'
+                     AND headword GLOB '*[a-zA-Z]*' AND headword GLOB '*[а-яА-ЯёЁӀ]*'""")
+    rep.check('нет латинских букв в чеченских заголовках', n == 0,
+              f'{n} заголовков; поиск их найдёт, но в карточке будет чужая буква:\n        '
+              + ', '.join(f'{c}:{h}' for c, h in lat[:10]))
 
     # FTS
     has_fts = one(new, "SELECT COUNT(*) FROM sqlite_master WHERE name='forms_trgm'")

@@ -56,7 +56,7 @@ TILDE = '̃'   # чёрточка долготы (комбинирующая)
 ACUTE = '́'   # русское ударение
 PAL   = 'Ӏ'   # Ӏ — канонический вид палочки
 
-DB_USER_VERSION = 7   # держать синхронно с DatabaseHelper.EXPECTED_DB_VERSION
+DB_USER_VERSION = 8   # держать синхронно с DatabaseHelper.EXPECTED_DB_VERSION
 
 
 # --------------------------------------------------------------------------
@@ -92,6 +92,27 @@ DICTS = {
         authors='Умархаджиев С. М., Ахматукаев А. А.', year=1997, place='Грозный',
         publisher='', lang_src='ru', lang_tgt='ce', priority=31,
         authority='specialized', quality='clean'),
+
+    'law2008_ce': dict(
+        book='law2008',
+        title='Чеченско-русский, русско-чеченский словарь юридических терминов',
+        authors='Абдурашидов Э. Д.', year=2008, place='Грозный',
+        publisher='Академия наук ЧР, Институт гуманитарных исследований',
+        lang_src='ce', lang_tgt='ru', priority=35,
+        authority='specialized', quality='rough',
+        caveat='Отраслевой словарь: вёрстка местами теряет начертание, и 128 '
+               'статей восстановлены по языку текста; скобки у автора без '
+               'системы, в книге есть опечатки в заглавных словах.'),
+    'law2008_ru': dict(
+        book='law2008',
+        title='Чеченско-русский, русско-чеченский словарь юридических терминов',
+        authors='Абдурашидов Э. Д.', year=2008, place='Грозный',
+        publisher='Академия наук ЧР, Институт гуманитарных исследований',
+        lang_src='ru', lang_tgt='ce', priority=36,
+        authority='specialized', quality='rough',
+        caveat='Отраслевой словарь: вёрстка местами теряет начертание, и 128 '
+               'статей восстановлены по языку текста; скобки у автора без '
+               'системы, в книге есть опечатки в заглавных словах.'),
 
     'aslakhanov2012': dict(
         book='aslakhanov2012',
@@ -830,14 +851,7 @@ def build(db_path, sources, class_forms='safe', want_fts=True, want_links=False,
     """sources — список (code, jsonl_path) в порядке приоритета показа."""
     log = []
     if os.path.exists(db_path):
-        try:
-            os.remove(db_path)
-        except PermissionError:
-            # Windows не даёт удалить открытый файл. Чаще всего база открыта
-            # в DB Browser или в инспекторе Android Studio — без подсказки
-            # остаётся голый WinError 32 в кодировке консоли.
-            sys.exit(f'{db_path} занят другой программой (DB Browser for SQLite, '
-                     f'инспектор базы в Android Studio…). Закройте её и повторите сборку.')
+        os.remove(db_path)
     db = sqlite3.connect(db_path)
     db.executescript(SCHEMA)
 
@@ -936,8 +950,11 @@ def build(db_path, sources, class_forms='safe', want_fts=True, want_links=False,
                 for c in g or []:
                     label_uses[(did, c)] += 1
 
-        def add_ti(text_norm, lemma, src, target):
-            push_ti(did, ltgt, text_norm, lemma, src, target)
+        def add_ti(text_norm, lemma, src, target, lang=None):
+            # `lang` по умолчанию язык ПЕРЕВОДА: обратный индекс на то и
+            # обратный. Переопределяется там, где в индекс идёт слово другой
+            # половины — падежная форма чеченского ЗАГОЛОВКА, например.
+            push_ti(did, lang or ltgt, text_norm, lemma, src, target)
 
         def add_form(lemma, obj, kind, sense=None, order=0, source='dict', donor=None):
             form, norm, fold = keyed(lsrc, obj.get('form') if isinstance(obj, dict) else obj)
@@ -1030,10 +1047,15 @@ def build(db_path, sources, class_forms='safe', want_fts=True, want_links=False,
                     # (амплитудан, амплитудана…)». Но искать по этим формам
                     # надо: читатель встречает в тексте «амплитудана», а не
                     # словарную форму.
+                    # `lang` на форме нужен там, где парадигма стоит при
+                    # ЗАГОЛОВКЕ, а не при переводе: в чеченско-русской
+                    # половине юридического словаря склоняется чеченское
+                    # заглавное слово, и нормализовать его по-русски нельзя.
                     for pf in (g.get('gram') or {}).get('forms') or []:
                         pw = marked(pf.get('form'))
                         if pw:
-                            add_ti(NORMALIZE[ltgt](pw), lemma, 0, gid)
+                            lang = pf.get('lang') or ltgt
+                            add_ti(NORMALIZE[lang](pw), lemma, 0, gid, lang)
                 add_examples(lemma, sid, s.get('examples'), False)
 
         # ---- проход 1: леммы --------------------------------------------
