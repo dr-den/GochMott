@@ -264,8 +264,14 @@ class SearchViewModel @Inject constructor(
                         ensureActive()
                         _state.update { it.copy(usage = usage) }
                     }
+                    // Исключаем и статьи, слитые в строку выдачи: их id из `exact`
+                    // ушёл в `alsoIn`, и без этого статья, уже показанная сверху
+                    // как «Мациев, 1961 +1», повторялась ниже в «похожих словах».
+                    val shown = exact.flatMapTo(HashSet()) { hit ->
+                        listOf(hit.id) + hit.alsoIn.map { it.lemmaId }
+                    }
                     val fuzzy = repository.enrichHits(
-                        repository.searchChechenFuzzy(query, exact.mapTo(HashSet()) { it.id })
+                        repository.searchChechenFuzzy(query, shown)
                     )
                     ensureActive()
                     _state.update { it.copy(fuzzyResults = fuzzy, isFuzzyLoading = false) }

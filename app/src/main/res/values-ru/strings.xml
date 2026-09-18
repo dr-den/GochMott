@@ -78,9 +78,9 @@
     <string name="copy_action">Копировать</string>
     <string name="display_section">Отображение</string>
     <string name="show_ce_length">Долгота гласных</string>
-    <string name="show_ce_length_hint">ха̃дадала вместо хададала</string>
+    <string name="show_ce_length_hint">лелар → ле̃лар</string>
     <string name="show_ru_stress">Ударения в переводах</string>
-    <string name="show_ru_stress_hint">ка́ждый раз вместо каждый раз</string>
+    <string name="show_ru_stress_hint">каждый → ка́ждый</string>
     <string name="book_lang_ru">Русский</string>
     <string name="book_lang_ce">Нохчийн</string>
     <string name="other_books">В других словарях</string>
@@ -91,6 +91,7 @@
     <string name="dict_book_math1997">Матем, 1997</string>
     <string name="dict_book_comp2017">Комп, 2017</string>
     <string name="dict_book_aslakhanov2012">Спорт, 2012</string>
+    <string name="dict_book_law2008">Юрид, 2008</string>
     <string name="dict_badges_more">ещё %1$d</string>
     <string name="dict_authority">Источник</string>
     <string name="dict_authority_academic">академическое издание</string>

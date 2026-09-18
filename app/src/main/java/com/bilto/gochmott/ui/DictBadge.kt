@@ -55,6 +55,7 @@ object DictBadge {
         "math1997" -> stringResource(R.string.dict_book_math1997)
         "comp2017" -> stringResource(R.string.dict_book_comp2017)
         "aslakhanov2012" -> stringResource(R.string.dict_book_aslakhanov2012)
+        "law2008" -> stringResource(R.string.dict_book_law2008)
         else -> year?.toString().orEmpty()
     }
 }

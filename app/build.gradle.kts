@@ -18,8 +18,8 @@ android {
         applicationId = "com.bilto.gochmott"
         minSdk = 26
         targetSdk = 37
-        versionCode = 20
-        versionName = "1.0.6"
+        versionCode = 21
+        versionName = "1.0.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -144,6 +144,8 @@ val dictSources = linkedMapOf(
     "comp2017_ce" to "comp2017_ce.jsonl",
     "comp2017_ru" to "comp2017_ru.jsonl",
     "aslakhanov2012" to "aslakhanov2012.jsonl",
+    "law2008_ce" to "law2008_ce.jsonl",
+    "law2008_ru" to "law2008_ru.jsonl",
 )
 
 val dictWorkDir = rootProject.file("rawSources/work")
